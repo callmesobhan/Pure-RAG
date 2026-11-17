@@ -1,11 +1,11 @@
 /**
- * Pure RAG — Frontend Application Logic
+ * Pure RAG — Clean, Uncluttered Frontend Application
  * Features:
- * - Streaming SSE Grounded Chat with Inline Page Citations & Source Cards
- * - Promptability Controls (Length: Shorter/Balanced/Longer, Style: Standard/Precise/Bulleted/Executive/Steps/ELI5/Quotes)
- * - Voice-to-Speech (Web Speech API STT Dictation) & Text-to-Speech (TTS Read-Aloud)
- * - Drag-and-Drop PDF Ingestion + Live Folder Sync
- * - Hardware Capability Analyzer & Permissioned Setup Wizard
+ * - Smoothly Collapsible Left Sidebar on Desktop & Mobile
+ * - Readable Answers with Bracketed Number Citations `[1]`, `[2]` + Hover Tooltips + Expandable References List
+ * - Integrated Promptability Toolbar (Length pills + Style dropdown + Sources selector)
+ * - Voice-to-Speech (STT) & Read-Aloud (TTS)
+ * - Local Model Auto-Discovery & Hardware Setup Modal
  */
 
 const state = {
@@ -23,12 +23,12 @@ const state = {
 };
 
 // ==================== DOM ELEMENTS ====================
+const sidebar = document.getElementById("sidebar");
+const closeSidebarBtn = document.getElementById("closeSidebarBtn");
+const openSidebarBtn = document.getElementById("openSidebarBtn");
 const docListEl = document.getElementById("docList");
 const docCountBadge = document.getElementById("docCountBadge");
-const pdfsPathDisplay = document.getElementById("pdfsPathDisplay");
 const activeModelDisplay = document.getElementById("activeModelDisplay");
-const activeRetrieverDisplay = document.getElementById("activeRetrieverDisplay");
-const chunkStatsDisplay = document.getElementById("chunkStatsDisplay");
 const messagesContainer = document.getElementById("messagesContainer");
 const messagesList = document.getElementById("messagesList");
 const welcomeHero = document.getElementById("welcomeHero");
@@ -38,8 +38,22 @@ const voiceInputBtn = document.getElementById("voiceInputBtn");
 const voiceStatusLabel = document.getElementById("voiceStatusLabel");
 const autoSpeakToggle = document.getElementById("autoSpeakToggle");
 const activeFilterNotice = document.getElementById("activeFilterNotice");
+const styleSelect = document.getElementById("styleSelect");
+const topKSelect = document.getElementById("topKSelect");
 
-// ==================== MARKDOWN & CITATION RENDERER ====================
+// ==================== SIDEBAR COLLAPSE / EXPAND ====================
+function toggleSidebar(forceOpen) {
+  if (typeof forceOpen === "boolean") {
+    sidebar.classList.toggle("collapsed", !forceOpen);
+  } else {
+    sidebar.classList.toggle("collapsed");
+  }
+}
+
+closeSidebarBtn.addEventListener("click", () => toggleSidebar(false));
+openSidebarBtn.addEventListener("click", () => toggleSidebar());
+
+// ==================== MARKDOWN & BRACKETED [1] CITATION RENDERER ====================
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -48,20 +62,40 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-function renderMarkdownWithCitations(rawText) {
+function renderMarkdownWithBracketCitations(rawText, citations = []) {
   if (!rawText) return "";
   let html = escapeHtml(rawText);
+
+  // Build lookup map of rank -> citation metadata for tooltips
+  const citeMap = {};
+  for (const c of citations) {
+    citeMap[c.rank] = c;
+  }
+
+  // Convert legacy verbose citations like `[filename.md, p. 1]` into bracketed numbers `[1]` if any LLM outputs them
+  html = html.replace(/`?\[([^\]\n]+?),\s*p\.\s*(\d+)[^\]\n]*\]`?/gi, (_, fname, pageStr) => {
+    const pageNum = parseInt(pageStr, 10);
+    const matched = citations.find(
+      (c) => c.filename.toLowerCase().includes(fname.trim().toLowerCase()) && c.page_number === pageNum
+    ) || citations[0];
+    const num = matched ? matched.rank : 1;
+    return `[${num}]`;
+  });
 
   // Code blocks ```...```
   html = html.replace(/```([\s\S]*?)```/g, (_, code) => {
     return `<pre><code>${code.trim()}</code></pre>`;
   });
 
-  // Highlight inline citations like [filename.pdf, p. 4] or `[sample.md, p. 1]`
-  html = html.replace(
-    /`?\[([^\]\n]+?,\s*p\.\s*\d+[^\]\n]*)\]`?/gi,
-    '<span class="inline-citation">📄 $1</span>'
-  );
+  // Replace bracketed numbers `[1]`, `[2]` with clean interactive badge pills
+  html = html.replace(/\[(\d{1,2})\]/g, (full, numStr) => {
+    const num = parseInt(numStr, 10);
+    const meta = citeMap[num];
+    const tooltip = meta
+      ? `${meta.filename} (Page ${meta.page_number} — ${meta.section_path})`
+      : `Source [${num}]`;
+    return `<span class="cite-ref" data-ref="${num}" title="${escapeHtml(tooltip)}">[${num}]</span>`;
+  });
 
   // Inline code
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
@@ -70,7 +104,7 @@ function renderMarkdownWithCitations(rawText) {
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
 
-  // Process line by line for headings, blockquotes, lists, paragraphs
+  // Process line-by-line into clean paragraphs, headings, lists, and blockquotes
   const lines = html.split("\n");
   const out = [];
   let inUl = false;
@@ -87,15 +121,10 @@ function renderMarkdownWithCitations(rawText) {
       closeLists();
       continue;
     }
-    if (trimmed.startsWith("### ")) {
+    if (trimmed.startsWith("### ") || trimmed.startsWith("## ") || trimmed.startsWith("# ")) {
       closeLists();
-      out.push(`<h3>${trimmed.slice(4)}</h3>`);
-    } else if (trimmed.startsWith("## ")) {
-      closeLists();
-      out.push(`<h3>${trimmed.slice(3)}</h3>`);
-    } else if (trimmed.startsWith("# ")) {
-      closeLists();
-      out.push(`<h3>${trimmed.slice(2)}</h3>`);
+      const cleanHeading = trimmed.replace(/^#{1,3}\s+/, "");
+      out.push(`<h3>${cleanHeading}</h3>`);
     } else if (trimmed.startsWith("&gt; ")) {
       closeLists();
       out.push(`<blockquote>${trimmed.slice(5)}</blockquote>`);
@@ -127,27 +156,13 @@ async function refreshStatus() {
   }
 }
 
-function formatBytes(bytes) {
-  if (!bytes || bytes < 1024) return `${bytes || 0} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function renderDocumentList(status) {
   const docs = status.documents || [];
   docCountBadge.textContent = docs.length;
-  pdfsPathDisplay.textContent = `📂 ${status.pdfs_dir || "./pdfs"}`;
-  activeModelDisplay.textContent = `LLM: ${status.llm_model || "Auto"}`;
-  activeRetrieverDisplay.textContent = `${status.active_embedder} + ${status.active_reranker}`;
-  chunkStatsDisplay.textContent = `${status.total_chunks || 0} contextual chunks across ${docs.length} docs`;
+  activeModelDisplay.textContent = `${status.llm_model || "Auto"} • ${status.total_chunks || 0} chunks`;
 
   if (docs.length === 0) {
-    docListEl.innerHTML = `
-      <div class="empty-docs">
-        No PDFs or docs indexed yet.<br/>
-        Drop files above or place them in <code>pdfs/</code>!
-      </div>
-    `;
+    docListEl.innerHTML = `<div class="empty-docs">No documents in <code>pdfs/</code> yet.</div>`;
     return;
   }
 
@@ -157,14 +172,14 @@ function renderDocumentList(status) {
     const item = document.createElement("div");
     item.className = `doc-item ${isSelected ? "selected-filter" : ""}`;
     item.innerHTML = `
-      <div class="doc-item-left" title="Click to filter queries to ${escapeHtml(doc.filename)}">
+      <div class="doc-item-left" title="Click to filter answers to ${escapeHtml(doc.filename)}">
         <span>📄</span>
         <div class="doc-info">
           <span class="doc-name">${escapeHtml(doc.filename)}</span>
-          <span class="doc-meta">${doc.total_pages}p • ${doc.chunk_count} chunks • ${formatBytes(doc.file_size_bytes)}</span>
+          <span class="doc-meta">${doc.total_pages}p • ${doc.chunk_count} chunks</span>
         </div>
       </div>
-      <button class="doc-delete-btn" title="Remove file from pdfs/ folder" aria-label="Delete ${escapeHtml(doc.filename)}">✕</button>
+      <button class="doc-delete-btn" title="Remove file" aria-label="Delete ${escapeHtml(doc.filename)}">✕</button>
     `;
 
     item.querySelector(".doc-item-left").addEventListener("click", () => {
@@ -179,7 +194,7 @@ function renderDocumentList(status) {
 
     item.querySelector(".doc-delete-btn").addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm(`Remove "${doc.filename}" from the pdfs/ folder?`)) return;
+      if (!confirm(`Remove "${doc.filename}" from pdfs/?`)) return;
       await fetch(`/api/documents/${encodeURIComponent(doc.filename)}`, { method: "DELETE" });
       state.selectedFilenames.delete(doc.filename);
       updateFilterNotice();
@@ -192,9 +207,11 @@ function renderDocumentList(status) {
 
 function updateFilterNotice() {
   if (state.selectedFilenames.size === 0) {
+    activeFilterNotice.classList.add("hidden");
     activeFilterNotice.textContent = "";
   } else {
-    activeFilterNotice.textContent = `Filtering (${state.selectedFilenames.size}): ${Array.from(state.selectedFilenames).join(", ")}`;
+    activeFilterNotice.classList.remove("hidden");
+    activeFilterNotice.textContent = `Filtered: ${Array.from(state.selectedFilenames).join(", ")}`;
   }
 }
 
@@ -229,13 +246,11 @@ async function uploadFiles(fileList) {
   for (const f of fileList) {
     formData.append("files", f);
   }
-  dropzone.querySelector("strong").textContent = "Indexing Documents...";
+  dropzone.querySelector("strong").textContent = "Indexing...";
   try {
     const res = await fetch("/api/upload", { method: "POST", body: formData });
     const data = await res.json();
     if (data.engine) renderDocumentList(data.engine);
-  } catch (err) {
-    console.error("Upload failed:", err);
   } finally {
     dropzone.querySelector("strong").textContent = "Add PDFs or Docs";
   }
@@ -248,34 +263,24 @@ syncDocsBtn.addEventListener("click", async () => {
     const data = await res.json();
     if (data.engine) renderDocumentList(data.engine);
   } finally {
-    syncDocsBtn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <polyline points="1 20 1 14 7 14"></polyline>
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-      </svg>
-      Sync Folder
-    `;
+    syncDocsBtn.textContent = "Sync";
   }
 });
 
 // ==================== PROMPTABILITY CONTROLS ====================
-function bindSegmentedGroup(containerId, stateKey) {
-  const container = document.getElementById(containerId);
-  const buttons = container.querySelectorAll(".pill-btn");
-  buttons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      buttons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      state[stateKey] = btn.dataset.value;
-    });
+document.querySelectorAll("#lengthSelector .pill-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#lengthSelector .pill-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.selectedLength = btn.dataset.value;
   });
-}
+});
 
-bindSegmentedGroup("lengthSelector", "selectedLength");
-bindSegmentedGroup("styleSelector", "selectedStyle");
+styleSelect.addEventListener("change", (e) => {
+  state.selectedStyle = e.target.value;
+});
 
-document.getElementById("topKSelect").addEventListener("change", (e) => {
+topKSelect.addEventListener("change", (e) => {
   state.topK = parseInt(e.target.value, 10) || 6;
 });
 
@@ -288,20 +293,14 @@ function setPromptabilityUI(lengthVal, styleVal) {
   }
   if (styleVal) {
     state.selectedStyle = styleVal;
-    document.querySelectorAll("#styleSelector .pill-btn").forEach((b) => {
-      b.classList.toggle("active", b.dataset.value === styleVal);
-    });
+    styleSelect.value = styleVal;
   }
 }
 
-// Starter cards on Welcome Hero
 document.querySelectorAll(".starter-card").forEach((card) => {
   card.addEventListener("click", () => {
-    const promptText = card.dataset.prompt;
-    const styleVal = card.dataset.style;
-    const lengthVal = card.dataset.length;
-    setPromptabilityUI(lengthVal, styleVal);
-    promptInput.value = promptText;
+    setPromptabilityUI(card.dataset.length, card.dataset.style);
+    promptInput.value = card.dataset.prompt;
     sendMessage();
   });
 });
@@ -309,41 +308,29 @@ document.querySelectorAll(".starter-card").forEach((card) => {
 // ==================== VOICE-TO-SPEECH (STT) & TEXT-TO-SPEECH (TTS) ====================
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    voiceInputBtn.title = "Speech recognition is supported in Chrome, Edge, and Safari.";
-    return;
-  }
+  if (!SpeechRecognition) return;
   const recognition = new SpeechRecognition();
   recognition.continuous = false;
   recognition.interimResults = true;
   recognition.lang = navigator.language || "en-US";
 
-  let basePromptBeforeVoice = "";
-
+  let basePrompt = "";
   recognition.onstart = () => {
     state.isRecording = true;
-    basePromptBeforeVoice = promptInput.value ? promptInput.value + " " : "";
+    basePrompt = promptInput.value ? promptInput.value + " " : "";
     voiceInputBtn.classList.add("recording");
     voiceStatusLabel.textContent = "Listening...";
   };
-
   recognition.onresult = (event) => {
     let transcript = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
       transcript += event.results[i][0].transcript;
     }
-    promptInput.value = basePromptBeforeVoice + transcript;
+    promptInput.value = basePrompt + transcript;
     autoResizeTextarea();
   };
-
-  recognition.onerror = () => {
-    stopVoiceRecording();
-  };
-
-  recognition.onend = () => {
-    stopVoiceRecording();
-  };
-
+  recognition.onerror = () => stopVoiceRecording();
+  recognition.onend = () => stopVoiceRecording();
   state.recognition = recognition;
 }
 
@@ -354,25 +341,20 @@ function stopVoiceRecording() {
 }
 
 voiceInputBtn.addEventListener("click", () => {
+  if (!state.recognition) initSpeechRecognition();
   if (!state.recognition) {
-    initSpeechRecognition();
-  }
-  if (!state.recognition) {
-    alert("Browser Voice-to-Text (Web Speech API) is not available in this browser. Try Chrome, Edge, or Safari.");
+    alert("Speech recognition is supported in Chrome, Edge, and Safari.");
     return;
   }
-  if (state.isRecording) {
-    state.recognition.stop();
-  } else {
-    state.recognition.start();
-  }
+  if (state.isRecording) state.recognition.stop();
+  else state.recognition.start();
 });
 
 function speakTextAloud(text) {
   if (!("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
   const clean = text
-    .replace(/`?\[[^\]\n]+?,\s*p\.\s*\d+[^\]\n]*\]`?/gi, "")
+    .replace(/\[\d+\]/g, "")
     .replace(/[#*_>`~-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -382,7 +364,7 @@ function speakTextAloud(text) {
   window.speechSynthesis.speak(utterance);
 }
 
-// ==================== CHAT STREAMING & UI RENDERING ====================
+// ==================== CHAT STREAMING & CLEAN NUMBERED REFERENCES ====================
 function autoResizeTextarea() {
   promptInput.style.height = "auto";
   promptInput.style.height = Math.min(promptInput.scrollHeight, 150) + "px";
@@ -414,43 +396,56 @@ async function sendMessage() {
   autoResizeTextarea();
   state.isStreaming = true;
 
-  // 1. Append User Bubble
+  // 1. User Bubble
   const userRow = document.createElement("div");
   userRow.className = "message-row user";
   userRow.innerHTML = `<div class="message-bubble">${escapeHtml(question)}</div>`;
   messagesList.appendChild(userRow);
 
-  // 2. Append Assistant Bubble Skeleton
+  // 2. Clean Assistant Answer Block (No Cluttered Top Header!)
   const assistantRow = document.createElement("div");
   assistantRow.className = "message-row assistant";
   assistantRow.innerHTML = `
     <div class="message-bubble">
-      <div class="msg-header-bar">
-        <div class="msg-badges">
-          <span class="msg-badge">Length: ${escapeHtml(state.selectedLength)}</span>
-          <span class="msg-badge">Style: ${escapeHtml(state.selectedStyle)}</span>
-          <span class="msg-badge" id="streamMetricBadge">Retrieving Hybrid + Rerank...</span>
-        </div>
+      <div class="msg-content"><p><em>Thinking...</em></p></div>
+      <div class="msg-footer-bar">
         <div class="msg-actions">
-          <button class="msg-action-btn speak-btn" title="Read response aloud (Text-to-Speech)">🔊 Speak</button>
-          <button class="msg-action-btn copy-btn" title="Copy Markdown response">📋 Copy</button>
+          <button class="msg-action-btn toggle-refs-btn">📚 References (0)</button>
+          <button class="msg-action-btn speak-btn" title="Read response aloud">🔊 Speak</button>
+          <button class="msg-action-btn copy-btn" title="Copy answer">📋 Copy</button>
         </div>
+        <span class="msg-meta-info"></span>
       </div>
-      <div class="msg-content"><p><em>Searching hybrid index &amp; reranking chunks...</em></p></div>
-      <div class="citations-panel"></div>
+      <div class="references-box hidden"></div>
     </div>
   `;
   messagesList.appendChild(assistantRow);
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
   const contentEl = assistantRow.querySelector(".msg-content");
-  const metricBadgeEl = assistantRow.querySelector("#streamMetricBadge");
-  const citationsPanelEl = assistantRow.querySelector(".citations-panel");
+  const metaInfoEl = assistantRow.querySelector(".msg-meta-info");
+  const toggleRefsBtn = assistantRow.querySelector(".toggle-refs-btn");
+  const referencesBoxEl = assistantRow.querySelector(".references-box");
   const speakBtn = assistantRow.querySelector(".speak-btn");
   const copyBtn = assistantRow.querySelector(".copy-btn");
 
   let accumulatedAnswer = "";
   let citations = [];
+
+  toggleRefsBtn.addEventListener("click", () => {
+    referencesBoxEl.classList.toggle("hidden");
+  });
+
+  // Clicking any inline `[1]` badge opens the references list and highlights that reference
+  contentEl.addEventListener("click", (e) => {
+    const badge = e.target.closest(".cite-ref");
+    if (!badge) return;
+    referencesBoxEl.classList.remove("hidden");
+    const refItem = referencesBoxEl.querySelector(`[data-ref-item="${badge.dataset.ref}"]`);
+    if (refItem) {
+      refItem.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  });
 
   try {
     const payload = {
@@ -490,17 +485,16 @@ async function sendMessage() {
         const evt = JSON.parse(jsonStr);
         if (evt.type === "metadata") {
           citations = evt.citations || [];
-          const retMs = evt.pipeline_metrics?.retrieval_ms ?? 0;
-          metricBadgeEl.textContent = `Hybrid RRF + Rerank: ${retMs}ms • ${citations.length} sources`;
-          renderCitationsDrawer(citationsPanelEl, citations);
+          toggleRefsBtn.textContent = `📚 References (${citations.length})`;
+          renderNumberedReferences(referencesBoxEl, citations);
         } else if (evt.type === "token") {
           accumulatedAnswer += evt.content || "";
-          contentEl.innerHTML = renderMarkdownWithCitations(accumulatedAnswer);
+          contentEl.innerHTML = renderMarkdownWithBracketCitations(accumulatedAnswer, citations);
           messagesContainer.scrollTop = messagesContainer.scrollHeight;
         } else if (evt.type === "done") {
           accumulatedAnswer = evt.answer || accumulatedAnswer;
-          contentEl.innerHTML = renderMarkdownWithCitations(accumulatedAnswer);
-          metricBadgeEl.textContent += ` • ${evt.generator}`;
+          contentEl.innerHTML = renderMarkdownWithBracketCitations(accumulatedAnswer, citations);
+          metaInfoEl.textContent = `${state.selectedLength} • ${state.selectedStyle}`;
         }
       }
     }
@@ -526,36 +520,30 @@ async function sendMessage() {
   }
 }
 
-function renderCitationsDrawer(container, citations) {
+function renderNumberedReferences(container, citations) {
   if (!citations || citations.length === 0) {
     container.innerHTML = "";
     return;
   }
-  const cardsHtml = citations
+  const itemsHtml = citations
     .map(
       (c) => `
-      <div class="citation-card">
-        <div class="citation-card-header">
-          <span>#${c.rank} ${escapeHtml(c.filename)} (p. ${c.page_number})</span>
-          <span>Score: ${c.final_score}</span>
-        </div>
-        <div class="citation-snippet" title="${escapeHtml(c.full_text)}">
-          <strong>${escapeHtml(c.section_path)}:</strong> ${escapeHtml(c.snippet)}
+      <div class="ref-item" data-ref-item="${c.rank}">
+        <span class="ref-num">[${c.rank}]</span>
+        <div class="ref-body">
+          <span class="ref-title">${escapeHtml(c.filename)}</span>
+          <span class="ref-meta">Page ${c.page_number} • ${escapeHtml(c.section_path)}</span>
+          <span class="ref-snippet">${escapeHtml(c.snippet)}</span>
         </div>
       </div>
     `
     )
     .join("");
 
-  container.innerHTML = `
-    <details open>
-      <summary class="citations-summary">📚 Grounded Source Passages (${citations.length} reranked chunks)</summary>
-      <div class="citations-grid">${cardsHtml}</div>
-    </details>
-  `;
+  container.innerHTML = `<div class="references-list">${itemsHtml}</div>`;
 }
 
-// ==================== HARDWARE & PERMISSIONED SETUP MODAL ====================
+// ==================== HARDWARE & LOCAL MODELS MODAL ====================
 const hardwareModal = document.getElementById("hardwareModal");
 const openHardwareModalBtn = document.getElementById("openHardwareModalBtn");
 const closeHardwareModalBtn = document.getElementById("closeHardwareModalBtn");
@@ -579,8 +567,8 @@ async function loadAndOpenHardwareModal() {
     const cfg = data.config;
 
     document.getElementById("specOs").textContent = `${hw.os_name} (${hw.architecture})`;
-    document.getElementById("specCpu").textContent = `${hw.cpu_brand} (${hw.cpu_cores_logical} threads)`;
-    document.getElementById("specRam").textContent = `${hw.ram_total_gb} GB Total (${hw.ram_available_gb} GB free)`;
+    document.getElementById("specCpu").textContent = `${hw.cpu_brand}`;
+    document.getElementById("specRam").textContent = `${hw.ram_total_gb} GB`;
     document.getElementById("specGpu").textContent = hw.gpu_name;
 
     const rec = hw.recommendation_details;
@@ -594,10 +582,10 @@ async function loadAndOpenHardwareModal() {
       const embList = [...(disc.ollama_embeddings || []), ...(disc.hf_embeddings || [])].join(", ") || "Built-in Hashed N-Gram";
       const rerankList = (disc.hf_rerankers || []).join(", ") || "Built-in Cross-Proximity";
       discBox.innerHTML = `
-        <strong>📦 Detected On-Device Models (Reused Automatically — Zero Download Needed):</strong><br/>
-        • <strong>Local LLMs:</strong> <code>${escapeHtml(llmList)}</code><br/>
-        • <strong>Local Embedders:</strong> <code>${escapeHtml(embList)}</code><br/>
-        • <strong>Local Rerankers:</strong> <code>${escapeHtml(rerankList)}</code>
+        <strong>Detected On-Device Models (Reused Automatically):</strong><br/>
+        • LLMs: <code>${escapeHtml(llmList)}</code> &nbsp;|&nbsp;
+        Embedders: <code>${escapeHtml(embList)}</code> &nbsp;|&nbsp;
+        Rerankers: <code>${escapeHtml(rerankList)}</code>
       `;
     }
 
@@ -619,14 +607,12 @@ function renderTiersGrid(allTiers, selectedId, disc = {}) {
   for (const [tierId, tier] of Object.entries(allTiers)) {
     const card = document.createElement("div");
     card.className = `tier-card ${tierId === selectedId ? "selected" : ""}`;
-    const alts = (tier.llm_alternatives || []).slice(0, 3).join(", ");
     card.innerHTML = `
       <div class="tier-card-top">
         <strong>${escapeHtml(tier.name)}</strong>
         <span class="tier-badge">${escapeHtml(tier.badge)}</span>
       </div>
-      <div class="tier-models">LLM: ${escapeHtml(tier.llm_model)} (${tier.llm_size_gb}GB) • Alts: ${escapeHtml(alts)}</div>
-      <div class="tier-models">Embed: ${escapeHtml(tier.embedding_model)} • Rerank: ${escapeHtml(tier.reranker_model)}</div>
+      <div class="tier-models">LLM: ${escapeHtml(tier.llm_model)} • Embed: ${escapeHtml(tier.embedding_model)}</div>
       <div class="tier-desc">${escapeHtml(tier.description)}</div>
     `;
     card.addEventListener("click", () => {
@@ -642,7 +628,7 @@ function renderTiersGrid(allTiers, selectedId, disc = {}) {
 
 document.getElementById("saveHardwareSetupBtn").addEventListener("click", async () => {
   const btn = document.getElementById("saveHardwareSetupBtn");
-  btn.textContent = "Applying Configuration...";
+  btn.textContent = "Saving...";
   try {
     await fetch("/api/setup/approve", {
       method: "POST",
@@ -659,7 +645,7 @@ document.getElementById("saveHardwareSetupBtn").addEventListener("click", async 
     hardwareModal.classList.add("hidden");
     await refreshStatus();
   } finally {
-    btn.textContent = "Approve & Apply Recommended Setup";
+    btn.textContent = "Save & Apply";
   }
 });
 
@@ -706,30 +692,22 @@ document.getElementById("savePersonaBtn").addEventListener("click", async () => 
   personaModal.classList.add("hidden");
 });
 
-// ==================== THEME & MOBILE SIDEBAR ====================
+// ==================== THEME TOGGLE ====================
 document.getElementById("themeToggleBtn").addEventListener("click", () => {
   const html = document.documentElement;
   const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
   html.setAttribute("data-theme", next);
 });
 
-document.getElementById("mobileSidebarBtn").addEventListener("click", () => {
-  document.getElementById("sidebar").classList.toggle("open");
-});
-
 // ==================== INITIALIZATION ====================
 (async function initApp() {
   initSpeechRecognition();
   await refreshStatus();
-  // Check if user has profiled hardware yet; if first run, show non-intrusive hardware wizard
   try {
     const res = await fetch("/api/config");
     const cfg = await res.json();
     state.customInstruction = cfg.custom_system_prompt || "";
     customPersonaInput.value = state.customInstruction;
-    if (!cfg.hardware_profiled) {
-      await loadAndOpenHardwareModal();
-    }
   } catch (e) {
     console.error(e);
   }

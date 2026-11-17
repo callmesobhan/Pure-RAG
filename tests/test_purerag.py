@@ -116,7 +116,8 @@ def test_hybrid_rag_engine_and_promptability_modes(tmp_path: Path):
         length="balanced",
         style="executive",
     )
-    assert "Bottom Line (BLUF)" in res_exec["answer"]
+    assert "Bottom Line" in res_exec["answer"]
+    assert "[1]" in res_exec["answer"] or "[2]" in res_exec["answer"]
 
     # Query in Step-by-Step style
     res_steps = engine.query(

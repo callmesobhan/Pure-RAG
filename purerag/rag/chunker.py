@@ -194,8 +194,12 @@ def chunk_document(
                 current_raw = f"{current_raw}\n\n{unit_text}".strip() if current_raw else unit_text
             else:
                 emit_chunk(current_raw, current_section)
-                # Carry over overlap tail from previous chunk within same page
-                overlap_tail = current_raw[-chunk_overlap_chars:].strip() if chunk_overlap_chars > 0 else ""
+                # Carry over only complete trailing sentence(s) for overlap so chunks never start mid-word!
+                overlap_tail = ""
+                if chunk_overlap_chars > 0:
+                    sents = re.split(r"(?<=[.!?])\s+", current_raw.strip())
+                    if len(sents) > 1 and len(sents[-1]) <= chunk_overlap_chars:
+                        overlap_tail = sents[-1].strip()
                 if overlap_tail and len(overlap_tail) + len(unit_text) + 2 <= chunk_size_chars:
                     current_raw = f"{overlap_tail}\n\n{unit_text}".strip()
                 else:

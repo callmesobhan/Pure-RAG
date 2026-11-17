@@ -1,7 +1,7 @@
 """
 Stage 7: Promptability & Grounded Generation Engine.
 Gives users complete control over response Length, Style/Format, Grounding strictness,
-and Domain Persona, while citing exact documents and page numbers.
+and Domain Persona, while citing exact documents using clean numeric brackets `[1]`, `[2]`.
 Supports:
 1. Local Ollama (`/api/chat` streaming & non-streaming)
 2. Any OpenAI-Compatible API (`vLLM`, `LM Studio`, `llama.cpp`, `OpenAI`)
@@ -22,46 +22,46 @@ from purerag.rag.retriever import RetrievedCandidate, tokenize_for_bm25
 
 LENGTH_MODIFIERS: Dict[str, str] = {
     "shorter": (
-        "RESPONSE LENGTH: CONCISE & SHORT. Keep your answer brief, direct, and under 120 words "
-        "(2 to 4 crisp sentences or a tight summary). Strip all filler."
+        "RESPONSE LENGTH: CONCISE & SHORT. Keep your answer brief, direct, and under 100 words "
+        "(2 to 4 crisp sentences). Strip all filler."
     ),
     "balanced": (
-        "RESPONSE LENGTH: BALANCED. Provide a clear, well-structured answer of moderate length "
-        "(roughly 150–300 words) that directly answers the question with key supporting details."
+        "RESPONSE LENGTH: BALANCED. Provide a clear, well-structured, easy-to-read answer of moderate length "
+        "(roughly 150–280 words) that directly answers the question with key supporting details."
     ),
     "longer": (
-        "RESPONSE LENGTH: COMPREHENSIVE & DETAILED. Provide an in-depth, thorough breakdown "
+        "RESPONSE LENGTH: COMPREHENSIVE & DETAILED. Provide an in-depth, well-organized breakdown "
         "covering all relevant nuances, figures, definitions, and context from the retrieved passages."
     ),
 }
 
 STYLE_MODIFIERS: Dict[str, str] = {
     "standard": (
-        "RESPONSE STYLE: Natural, clear, helpful AI assistant tone with clean Markdown formatting."
+        "RESPONSE STYLE: Natural, clean, highly readable AI assistant prose with clear paragraphs."
     ),
     "precise": (
         "RESPONSE STYLE: HIGHLY PRECISE & TECHNICAL. Prioritize exact terminology, numbers, equations, "
-        "dates, thresholds, and verbatim facts from the source text. Avoid vague generalizations."
+        "dates, thresholds, and verbatim facts from the source text."
     ),
     "bulleted": (
-        "RESPONSE STYLE: BULLETED KEY POINTS. Structure the entire response as organized, scannable "
-        "Markdown bullet points (`- `) grouped by logical subheadings where helpful."
+        "RESPONSE STYLE: BULLETED KEY POINTS. Structure the response as clean, scannable "
+        "Markdown bullet points (`- `) with one clear takeaway per bullet."
     ),
     "executive": (
-        "RESPONSE STYLE: EXECUTIVE BRIEF. Start with a bold **Bottom Line (BLUF)** sentence, followed "
-        "by **Key Takeaways** and **Supporting Evidence**."
+        "RESPONSE STYLE: EXECUTIVE BRIEF. Start with a bold **Bottom Line** sentence, followed "
+        "by 3–5 concise **Key Takeaways**."
     ),
     "step_by_step": (
-        "RESPONSE STYLE: STEP-BY-STEP GUIDE. Present the answer as a numbered, sequential breakdown "
-        "(`1.`, `2.`, `3.`) explaining the process or logical chain clearly."
+        "RESPONSE STYLE: STEP-BY-STEP GUIDE. Present the answer as a clean numbered list "
+        "(`1.`, `2.`, `3.`) explaining the process or logical sequence clearly."
     ),
     "eli5": (
         "RESPONSE STYLE: SIMPLE & ACCESSIBLE (ELI5). Explain complex concepts in plain, everyday "
-        "language with intuitive analogies while staying 100% faithful to the documents."
+        "language while staying faithful to the documents."
     ),
     "citations_only": (
-        "RESPONSE STYLE: STRICT EVIDENCE & QUOTES. Answer only with direct findings and verbatim quotes "
-        "from the retrieved sources, attributing every single statement to its `[Source: filename, p. X]`."
+        "RESPONSE STYLE: DIRECT QUOTES & EVIDENCE. Answer using clean blockquotes from the retrieved sources, "
+        "ending each quote with its numeric citation `[1]`, `[2]`, etc."
     ),
 }
 
@@ -88,7 +88,7 @@ def build_grounded_messages(
     for idx, cand in enumerate(candidates, start=1):
         c = cand.chunk
         block = (
-            f"--- [Source #{idx}: {c.filename} | Page {c.page_number} | Section: {c.section_path}] ---\n"
+            f"[{idx}] Source: {c.filename} (Page {c.page_number}, Section: {c.section_path})\n"
             f"{c.raw_text}"
         )
         context_blocks.append(block)
@@ -101,12 +101,13 @@ def build_grounded_messages(
 
     system_prompt = (
         "You are Pure RAG, a state-of-the-art local Retrieval-Augmented Generation AI assistant.\n"
-        "Your primary obligation is truthfulness and strict grounding in the user's local documents.\n\n"
-        "CORE GROUNDING RULES:\n"
-        "1. Base your answer strictly on the RETRIEVED DOCUMENT CONTEXT provided below.\n"
-        "2. Always cite your sources inline using the format `[filename, p. X]` (for example: `[paper.pdf, p. 4]`).\n"
-        "3. If the retrieved context does not contain enough information to answer a part of the question, "
-        "state clearly what is and isn't covered in the uploaded documents rather than guessing or hallucinating.\n\n"
+        "Write clear, natural, effortlessly readable answers grounded strictly in the user's documents.\n\n"
+        "CITATION & READABILITY RULES:\n"
+        "1. Base your answer strictly on the numbered RETRIEVED SOURCES `[1]`, `[2]`, etc. provided below.\n"
+        "2. Cite sources inline using ONLY short bracketed numbers like `[1]` or `[1][2]` at the end of a sentence or claim. "
+        "NEVER write long filenames or page numbers inline inside the prose.\n"
+        "3. Write clean, well-spaced Markdown that is easy to scan and read.\n"
+        "4. If the retrieved context does not contain the answer, state that clearly without guessing.\n\n"
         f"{length_rule}\n"
         f"{style_rule}"
         f"{custom_block}"
@@ -122,15 +123,25 @@ def build_grounded_messages(
                 messages.append({"role": role, "content": content})
 
     user_message = (
-        f"RETRIEVED DOCUMENT CONTEXT:\n"
+        f"RETRIEVED SOURCES:\n"
         f"{joined_context}\n\n"
         f"---\n"
-        f"USER QUESTION: {query}\n\n"
-        f"Remember to follow the requested length ({options.length}) and style ({options.style}) "
-        f"and include inline `[filename, p. X]` citations."
+        f"QUESTION: {query}\n\n"
+        f"Answer clearly following the requested length ({options.length}) and style ({options.style}), "
+        f"using only clean bracketed numbers (`[1]`, `[2]`, ...) for citations."
     )
     messages.append({"role": "user", "content": user_message})
     return messages
+
+
+def _clean_sentence_for_display(text: str) -> str:
+    s = text.strip()
+    # Strip leading markdown list markers or headings
+    s = re.sub(r"^(?:[-*•]+|\d+\.)\s+", "", s).strip()
+    s = re.sub(r"^#{1,6}\s+", "", s).strip()
+    # Collapse internal newlines into clean spaces
+    s = re.sub(r"\s*\n+\s*", " ", s).strip()
+    return s
 
 
 def synthesize_extractive_response(
@@ -139,103 +150,93 @@ def synthesize_extractive_response(
     options: PromptOptions,
 ) -> str:
     """
-    Intelligent Promptability-Aware Extractive Synthesizer used when no local LLM
-    (Ollama / OpenAI endpoint) is active yet, so Pure RAG works 100% out of the box!
-    Formats retrieved evidence according to the user's chosen `length` and `style`.
+    Clean, readable Promptability-Aware Extractive Synthesizer used when no local LLM
+    is active. Uses concise bracketed numbers `[1]`, `[2]` mapped to the retrieved sources.
     """
     if not candidates:
         return (
-            "I couldn't find any indexed documents matching your query. "
-            "Please add PDF, Markdown, or TXT files to the `pdfs/` folder (or drag & drop them in the sidebar) "
-            "and click **Sync Documents**."
+            "No matching documents were found in your `pdfs/` folder. "
+            "Drop a PDF, Markdown, or TXT file into the sidebar or `./pdfs/` folder to begin."
         )
 
     q_tokens = set(tokenize_for_bm25(query))
 
-    # Extract and score individual sentences across top retrieved chunks
-    scored_sentences: List[tuple[float, str, str, int, str]] = []
-    for rank_idx, cand in enumerate(candidates):
+    # Extract and score clean sentences across top retrieved chunks; keep their 1-based source rank
+    scored_sentences: List[tuple[float, str, int, str]] = []
+    for rank_idx, cand in enumerate(candidates, start=1):
         c = cand.chunk
-        raw_sents = re.split(r"(?<=[.!?])\s+|\n+", c.raw_text)
-        for sent in raw_sents:
-            s_clean = re.sub(r"^[-*•]\s+", "", sent.strip()).strip()
-            if len(s_clean) < 25 or s_clean.startswith("#"):
+        # Split on sentence boundaries or bullet lines
+        raw_parts = re.split(r"(?<=[.!?])\s+|\n+", c.raw_text)
+        for part in raw_parts:
+            raw_line = part.strip()
+            if not raw_line or raw_line.startswith("#") or raw_line.startswith("---"):
+                continue
+            s_clean = _clean_sentence_for_display(raw_line)
+            # Ignore fragments that start lowercase (broken mid-sentence slice) or are too short
+            if len(s_clean) < 35 or (s_clean[0].islower() and not s_clean.startswith("`")):
                 continue
             s_tokens = set(tokenize_for_bm25(s_clean))
             overlap = len(q_tokens & s_tokens) / max(1, len(q_tokens))
-            rank_weight = 1.0 / (1.0 + 0.25 * rank_idx)
+            rank_weight = 1.0 / (1.0 + 0.22 * (rank_idx - 1))
             score = (0.65 * overlap + 0.35 * cand.final_score) * rank_weight
-            scored_sentences.append((score, s_clean, c.filename, c.page_number, c.section_path))
+            scored_sentences.append((score, s_clean, rank_idx, c.section_path))
 
     scored_sentences.sort(key=lambda x: x[0], reverse=True)
 
-    # Deduplicate near-identical sentences
-    selected: List[tuple[str, str, int, str]] = []
+    selected: List[tuple[str, int, str]] = []
     seen_prefixes = set()
-    max_sents = 3 if options.length == "shorter" else (6 if options.length == "balanced" else 10)
+    max_sents = 3 if options.length == "shorter" else (5 if options.length == "balanced" else 8)
 
-    for _, text, fname, page, section in scored_sentences:
-        prefix = text[:50].lower()
+    for _, text, src_num, section in scored_sentences:
+        prefix = re.sub(r"\W+", "", text[:45].lower())
         if prefix in seen_prefixes:
             continue
         seen_prefixes.add(prefix)
-        selected.append((text, fname, page, section))
+        # Ensure sentence ends with clean punctuation before adding [N]
+        if text[-1] not in ".!?":
+            text = text + "."
+        selected.append((text, src_num, section))
         if len(selected) >= max_sents:
             break
 
     if not selected:
         top_c = candidates[0].chunk
-        selected = [(top_c.raw_text[:350], top_c.filename, top_c.page_number, top_c.section_path)]
+        fallback_txt = _clean_sentence_for_display(top_c.raw_text[:320])
+        selected = [(fallback_txt, 1, top_c.section_path)]
 
-    # Format according to options.style
+    # Format cleanly according to options.style using ONLY [1], [2] bracket citations
     if options.style == "bulleted":
-        lines = [f"### Key Points from Your Documents\n"]
-        for text, fname, page, _ in selected:
-            lines.append(f"- {text} **`[{fname}, p. {page}]`**")
-        return "\n".join(lines)
+        return "\n".join(f"- {text} [{src_num}]" for text, src_num, _ in selected)
 
     if options.style == "executive":
-        lead_text, lead_file, lead_page, _ = selected[0]
-        lines = [
-            f"**Bottom Line (BLUF):** {lead_text} **`[{lead_file}, p. {lead_page}]`**\n",
-            "**Key Supporting Evidence:**",
-        ]
-        for text, fname, page, sec in selected[1:]:
-            lines.append(f"- *({sec})* {text} **`[{fname}, p. {page}]`**")
+        lead_text, lead_num, _ = selected[0]
+        lines = [f"**Bottom Line:** {lead_text} [{lead_num}]"]
+        if len(selected) > 1:
+            lines.append("\n**Key Takeaways:**")
+            for text, src_num, _ in selected[1:]:
+                lines.append(f"- {text} [{src_num}]")
         return "\n".join(lines)
 
     if options.style == "step_by_step":
-        lines = ["### Step-by-Step Breakdown\n"]
-        for idx, (text, fname, page, _) in enumerate(selected, start=1):
-            lines.append(f"{idx}. {text} **`[{fname}, p. {page}]`**")
-        return "\n".join(lines)
+        return "\n".join(
+            f"{idx}. {text} [{src_num}]"
+            for idx, (text, src_num, _) in enumerate(selected, start=1)
+        )
 
     if options.style == "citations_only":
-        lines = ["### Direct Document Evidence & Citations\n"]
-        for text, fname, page, sec in selected:
-            lines.append(f'> "{text}"\n> — **`[{fname}, p. {page} | {sec}]`**\n')
-        return "\n".join(lines)
+        return "\n\n".join(f'> "{text}" [{src_num}]' for text, src_num, _ in selected)
 
     if options.style == "precise":
-        lines = ["### Precise Findings\n"]
-        for text, fname, page, sec in selected:
-            lines.append(f"- **[{sec}]**: {text} **`[{fname}, p. {page}]`**")
-        return "\n".join(lines)
+        return "\n".join(f"- {text} [{src_num}]" for text, src_num, _ in selected)
 
-    # Standard or ELI5 prose paragraph synthesis
-    paragraphs: List[str] = []
-    for text, fname, page, _ in selected:
-        paragraphs.append(f"{text} `[{fname}, p. {page}]`")
+    # Standard or ELI5: clean, readable paragraphs with [1], [2] citations
+    cited_sentences = [f"{text} [{src_num}]" for text, src_num, _ in selected]
+    if options.length == "shorter" or len(cited_sentences) <= 2:
+        return " ".join(cited_sentences)
 
-    if options.length == "shorter":
-        return " ".join(paragraphs)
-
-    intro = f"Based on the retrieved sections from your documents, here is what the sources state:\n\n"
-    body = "\n\n".join(paragraphs[:2])
-    if len(paragraphs) > 2:
-        bullets = "\n".join(f"- {p}" for p in paragraphs[2:])
-        return f"{intro}{body}\n\n**Additional Context:**\n{bullets}"
-    return f"{intro}{body}"
+    first_para = " ".join(cited_sentences[:2])
+    bullet_points = "\n".join(f"- {s}" for s in cited_sentences[2:])
+    return f"{first_para}\n\n{bullet_points}"
 
 
 class GroundedGenerator:
@@ -243,7 +244,7 @@ class GroundedGenerator:
         self,
         provider: str = "ollama",
         ollama_base_url: str = "http://127.0.0.1:11434",
-        llm_model: str = "llama3.2:3b",
+        llm_model: str = "qwen3:4b",
         openai_api_base: str = "https://api.openai.com/v1",
         openai_api_key: str = "",
     ) -> None:
@@ -264,12 +265,10 @@ class GroundedGenerator:
                 return None
             if self.llm_model in models:
                 return self.llm_model
-            # Match prefix (e.g., "qwen2.5:3b" vs "qwen2.5:3b-instruct")
             base_prefix = self.llm_model.split(":")[0]
             for m in models:
                 if m.startswith(base_prefix) and "embed" not in m.lower():
                     return m
-            # Fallback to any non-embedding model installed in Ollama
             non_embed = [m for m in models if "embed" not in m.lower()]
             return non_embed[0] if non_embed else None
         except Exception:
@@ -334,9 +333,8 @@ class GroundedGenerator:
             except Exception:
                 pass
 
-        # Instant Grounded Extractive Synthesis Fallback
         synthesized = synthesize_extractive_response(query, candidates, options)
-        return synthesized, "extractive_grounded_synthesizer"
+        return synthesized, "extractive_synthesizer"
 
     def stream_generate(
         self,
@@ -386,7 +384,6 @@ class GroundedGenerator:
                 except Exception:
                     pass
 
-        # Fallback to extractive synthesizer streamed smoothly
         text, used_model = self.generate(query, candidates, options, chat_history)
         words = re.findall(r"\S+\s*", text)
         batch = []
