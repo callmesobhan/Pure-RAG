@@ -5,6 +5,7 @@
 **The Universal, State-of-the-Art Local RAG Pipeline & AI Chatbot**  
 *Drop your PDFs in `pdfs/` • Run one command • Chat with your documents locally via Text & Voice*
 
+[![CI](https://github.com/callmesobhan/Pure-RAG/actions/workflows/ci.yml/badge.svg)](https://github.com/callmesobhan/Pure-RAG/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-indigo.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-emerald)](https://github.com/callmesobhan/Pure-RAG)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](pyproject.toml)
