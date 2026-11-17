@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pure-rag"
+version = "1.0.0"
+description = "Pure RAG: State-of-the-Art Local RAG Pipeline & AI Chatbot with Hybrid Search, Cross-Encoder Reranking, Voice, and Hardware-Aware Setup"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Sobhan", email = "callmesobhan@users.noreply.github.com" }
+]
+keywords = ["rag", "local-ai", "pdf", "hybrid-search", "bm25", "reranker", "ollama", "chatbot", "voice"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6.0",
+    "pypdf>=4.1.0",
+    "rank-bm25>=0.2.2",
+    "numpy>=1.24.0",
+    "requests>=2.31.0",
+    "psutil>=5.9.8",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+sota = [
+    "pymupdf4llm>=0.0.17",
+    "fastembed>=0.3.6",
+    "flashrank>=0.2.8",
+]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+purerag = "purerag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["purerag*"]
+
+[tool.setuptools.package-data]
+purerag = ["static/*", "static/**/*"]

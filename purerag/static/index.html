@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pure RAG — Local SOTA AI Chatbot & Document Intelligence</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Left Sidebar: PDF Vault & Pipeline Status -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-header">
+        <div class="brand-logo">
+          <div class="logo-orb"></div>
+          <div>
+            <h1>Pure RAG</h1>
+            <span class="brand-subtitle">Local Hybrid + Rerank Engine</span>
+          </div>
+        </div>
+        <button class="icon-btn" id="themeToggleBtn" title="Toggle Light/Dark Theme" aria-label="Toggle Theme">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"></circle>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- New Chat Button -->
+      <button class="new-chat-btn" id="newChatBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        New Grounded Chat
+      </button>
+
+      <!-- Designated PDF Dropzone -->
+      <div class="dropzone-card" id="dropzone">
+        <input type="file" id="fileInput" multiple accept=".pdf,.md,.txt,.markdown" hidden />
+        <div class="dropzone-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <polyline points="9 15 12 12 15 15"></polyline>
+          </svg>
+        </div>
+        <div class="dropzone-text">
+          <strong>Add PDFs or Docs</strong>
+          <span>Drop files here or put them in <code>pdfs/</code></span>
+        </div>
+      </div>
+
+      <!-- Folder Sync & Filter Header -->
+      <div class="section-header">
+        <div class="section-title-group">
+          <span>INDEXED DOCUMENTS</span>
+          <span class="badge-pill" id="docCountBadge">0</span>
+        </div>
+        <button class="sync-btn" id="syncDocsBtn" title="Scan pdfs/ folder and index new files">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          Sync Folder
+        </button>
+      </div>
+
+      <div class="folder-path-hint" id="pdfsPathDisplay" title="Local folder watched by Pure RAG">
+        📂 ./pdfs/
+      </div>
+
+      <!-- Document List -->
+      <div class="doc-list" id="docList">
+        <div class="empty-docs">Scanning <code>pdfs/</code> folder...</div>
+      </div>
+
+      <!-- Sidebar Footer: Pipeline Status & Hardware Wizard Trigger -->
+      <div class="sidebar-footer">
+        <div class="pipeline-status-card" id="pipelineStatusCard">
+          <div class="status-row">
+            <span class="status-dot online" id="engineStatusDot"></span>
+            <span class="status-label" id="activeModelDisplay">Checking Engine...</span>
+          </div>
+          <div class="status-sub" id="activeRetrieverDisplay">Hybrid RRF + Reranker</div>
+          <div class="status-sub" id="chunkStatsDisplay">0 chunks indexed</div>
+        </div>
+
+        <button class="hardware-wizard-btn" id="openHardwareModalBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+            <rect x="9" y="9" width="6" height="6"></rect>
+            <line x1="9" y1="1" x2="9" y2="4"></line>
+            <line x1="15" y1="1" x2="15" y2="4"></line>
+            <line x1="9" y1="20" x2="9" y2="23"></line>
+            <line x1="15" y1="20" x2="15" y2="23"></line>
+            <line x1="20" y1="9" x2="23" y2="9"></line>
+            <line x1="20" y1="14" x2="23" y2="14"></line>
+            <line x1="1" y1="9" x2="4" y2="9"></line>
+            <line x1="1" y1="14" x2="4" y2="14"></line>
+          </svg>
+          Hardware & Model Setup
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="chat-main">
+      <!-- Top Bar -->
+      <header class="chat-topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu-btn" id="mobileSidebarBtn" aria-label="Toggle Sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="pipeline-pills">
+            <span class="tech-pill" title="Contextual Breadcrumb Hierarchy + PyMuPDF4LLM">Contextual Chunks</span>
+            <span class="tech-pill" title="Dense Vector Cosine + Sparse BM25 Okapi fused via Reciprocal Rank Fusion">Hybrid Dense + BM25 (RRF)</span>
+            <span class="tech-pill" title="Second-stage Cross-Encoder Reranking">Cross-Encoder Rerank</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <label class="voice-auto-toggle" title="Automatically read assistant responses aloud using Text-to-Speech">
+            <input type="checkbox" id="autoSpeakToggle" />
+            <span>🔊 Auto-Read Voice</span>
+          </label>
+          <button class="secondary-btn" id="openCustomPersonaBtn" title="Set custom domain instructions (e.g., Legal, Medical, Academic)">
+            🎯 Domain Persona
+          </button>
+        </div>
+      </header>
+
+      <!-- Scrollable Conversation Stream -->
+      <section class="messages-container" id="messagesContainer">
+        <!-- Welcome Hero State -->
+        <div class="welcome-hero" id="welcomeHero">
+          <div class="hero-badge">100% Local • Private • SOTA Hybrid Retrieval</div>
+          <h2>Ask Anything Across Your PDFs</h2>
+          <p>
+            Drop your PDFs into the <code>pdfs/</code> folder (or drag them into the left sidebar).
+            Customize how answers are written below—shorter, longer, bulleted, executive brief, or strict citations—and talk naturally using voice or text.
+          </p>
+
+          <div class="starter-grid">
+            <button class="starter-card" data-prompt="Summarize the core architecture and key innovations described in the documents in bullet points." data-style="bulleted" data-length="balanced">
+              <span class="starter-tag">📋 Bulleted Summary</span>
+              <strong>Summarize core architecture & key points</strong>
+              <span>Uses Bulleted style + Balanced length</span>
+            </button>
+            <button class="starter-card" data-prompt="Give me a concise executive brief of why Hybrid Search (Dense + BM25) and Cross-Encoder Reranking outperform naive RAG." data-style="executive" data-length="shorter">
+              <span class="starter-tag">⚡ Executive Brief (Short)</span>
+              <strong>Why Hybrid Search + Reranking wins</strong>
+              <span>Uses Executive BLUF + Shorter length</span>
+            </button>
+            <button class="starter-card" data-prompt="Provide a comprehensive, step-by-step guide on how to install, configure hardware tiers, and query Pure RAG." data-style="step_by_step" data-length="longer">
+              <span class="starter-tag">🔢 Step-by-Step (Detailed)</span>
+              <strong>Complete installation & usage walkthrough</strong>
+              <span>Uses Step-by-Step + Longer length</span>
+            </button>
+            <button class="starter-card" data-prompt="Extract the exact metrics, parameters, and verbatim evidence from the documents with strict citations." data-style="citations_only" data-length="balanced">
+              <span class="starter-tag">🔍 Strict Citations</span>
+              <strong>Extract exact quotes & technical figures</strong>
+              <span>Uses Strict Evidence & Citations mode</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Dynamic Chat Messages Append Here -->
+        <div class="messages-list" id="messagesList"></div>
+      </section>
+
+      <!-- Familiar AI Prompt Box + Promptability Bar + Voice -->
+      <footer class="composer-area">
+        <div class="composer-wrapper">
+          <!-- Promptability Bar: Length, Format/Style, Grounding Temperature, Top-K -->
+          <div class="promptability-bar" role="toolbar" aria-label="Promptability Controls">
+            <div class="control-group">
+              <span class="control-label">Length:</span>
+              <div class="segmented-pills" id="lengthSelector">
+                <button type="button" class="pill-btn" data-value="shorter" title="Concise (<120 words)">Shorter</button>
+                <button type="button" class="pill-btn active" data-value="balanced" title="Balanced (150-300 words)">Balanced</button>
+                <button type="button" class="pill-btn" data-value="longer" title="Comprehensive & In-depth">Longer</button>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <span class="control-label">Style:</span>
+              <div class="segmented-pills" id="styleSelector">
+                <button type="button" class="pill-btn active" data-value="standard">Standard</button>
+                <button type="button" class="pill-btn" data-value="precise">Precise</button>
+                <button type="button" class="pill-btn" data-value="bulleted">• Bulleted</button>
+                <button type="button" class="pill-btn" data-value="executive">Executive</button>
+                <button type="button" class="pill-btn" data-value="step_by_step">1-2-3 Steps</button>
+                <button type="button" class="pill-btn" data-value="eli5">Simple (ELI5)</button>
+                <button type="button" class="pill-btn" data-value="citations_only">Strict Quotes</button>
+              </div>
+            </div>
+
+            <div class="control-group compact-selects">
+              <label title="Number of reranked chunks fed into context">
+                <span>Sources:</span>
+                <select id="topKSelect">
+                  <option value="4">Top 4</option>
+                  <option value="6" selected>Top 6</option>
+                  <option value="8">Top 8</option>
+                  <option value="12">Top 12</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <!-- Prompt Input Box -->
+          <div class="prompt-box" id="promptBox">
+            <textarea
+              id="promptInput"
+              rows="1"
+              placeholder="Ask your PDFs anything... (Press Enter to send, Shift+Enter for newline, or click the Mic to speak)"
+              aria-label="Chat Prompt"
+            ></textarea>
+
+            <div class="prompt-actions">
+              <!-- Voice-to-Speech (Dictation) Button -->
+              <button
+                type="button"
+                class="voice-btn"
+                id="voiceInputBtn"
+                title="Voice Input (Speech-to-Text): Click and speak your question"
+                aria-label="Voice Input"
+              >
+                <svg class="mic-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+                <span class="voice-status-label" id="voiceStatusLabel">Voice</span>
+              </button>
+
+              <!-- Send Prompt Button -->
+              <button
+                type="button"
+                class="send-btn"
+                id="sendBtn"
+                title="Send message (Enter)"
+                aria-label="Send Message"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="composer-footnote">
+            <span>Grounded strictly in your local <code>pdfs/</code> folder with inline page citations.</span>
+            <span id="activeFilterNotice" class="filter-notice"></span>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Modal 1: Hardware Capability Analyzer & Permissioned Setup Wizard -->
+  <div class="modal-backdrop hidden" id="hardwareModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">PERMISSIONED DEVICE CAPABILITY WIZARD</span>
+          <h3>Hardware Analysis & Model Recommendation</h3>
+        </div>
+        <button class="icon-btn" id="closeHardwareModalBtn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="modal-intro">
+          Pure RAG analyzed your local hardware to recommend the highest-performing RAG configuration for your device.
+          <strong>Nothing is downloaded without your explicit permission.</strong>
+        </p>
+
+        <!-- Detected Hardware Specs Grid -->
+        <div class="hw-specs-grid" id="hwSpecsGrid">
+          <div class="hw-spec-box">
+            <span class="spec-label">Operating System</span>
+            <strong id="specOs">Detecting...</strong>
+          </div>
+          <div class="hw-spec-box">
+            <span class="spec-label">Processor (CPU)</span>
+            <strong id="specCpu">Detecting...</strong>
+          </div>
+          <div class="hw-spec-box">
+            <span class="spec-label">System Memory (RAM)</span>
+            <strong id="specRam">Detecting...</strong>
+          </div>
+          <div class="hw-spec-box">
+            <span class="spec-label">GPU Acceleration</span>
+            <strong id="specGpu">Detecting...</strong>
+          </div>
+        </div>
+
+        <!-- Recommendation Banner -->
+        <div class="recommendation-banner" id="recBanner">
+          <div class="rec-header">
+            <span class="rec-badge" id="recBadge">Recommended for Your Device</span>
+            <strong id="recTitle">Analyzing...</strong>
+          </div>
+          <p id="recReason"></p>
+        </div>
+
+        <!-- Selectable Hardware Tiers -->
+        <h4 class="tier-section-title">Choose Your RAG Performance Tier</h4>
+        <div class="tiers-grid" id="tiersGrid"></div>
+
+        <!-- Advanced Model & Provider Overrides -->
+        <details class="advanced-setup-details">
+          <summary>Advanced Model & Provider Settings (Ollama / OpenAI-Compatible API)</summary>
+          <div class="advanced-form-grid">
+            <label>
+              <span>LLM Provider</span>
+              <select id="setupLlmProvider">
+                <option value="ollama">Local Ollama (Recommended)</option>
+                <option value="openai_compat">OpenAI-Compatible Endpoint (LM Studio / vLLM / OpenAI)</option>
+                <option value="extractive_fallback">Instant Extractive Synthesis Only (Zero LLM RAM)</option>
+              </select>
+            </label>
+            <label>
+              <span>LLM Model Name</span>
+              <input type="text" id="setupLlmModel" placeholder="e.g. qwen2.5:7b or llama3.2:3b" />
+            </label>
+            <label>
+              <span>Dense Embedding Model</span>
+              <select id="setupEmbeddingBackend">
+                <option value="fastembed">FastEmbed ONNX (BAAI/bge-*)</option>
+                <option value="ollama">Ollama Embeddings (nomic-embed-text)</option>
+                <option value="hashed_ngram">Zero-Download N-Gram Vectors (Offline Instant)</option>
+              </select>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="setupUseReranker" checked />
+              <span>Enable Cross-Encoder Reranker (Stage 6 Precision Filter)</span>
+            </label>
+          </div>
+        </details>
+
+        <!-- Permission Checkbox -->
+        <div class="permission-box">
+          <label class="permission-label">
+            <input type="checkbox" id="approveDownloadCheckbox" checked />
+            <div>
+              <strong>I grant permission to configure and initialize the selected models locally</strong>
+              <span>Pure RAG will store settings in <code>data/config.json</code> and only download models you approve.</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="secondary-btn" id="keepOfflineFallbackBtn">Use Zero-Download Instant Mode</button>
+        <button class="primary-btn" id="saveHardwareSetupBtn">Approve & Apply Recommended Setup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Custom Domain Persona / System Instructions -->
+  <div class="modal-backdrop hidden" id="personaModal">
+    <div class="modal-card modal-small">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">CUSTOM PROMPTABILITY</span>
+          <h3>Domain Persona & Custom Instructions</h3>
+        </div>
+        <button class="icon-btn" id="closePersonaModalBtn" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">
+          Tailor Pure RAG to your field (e.g., Medicine, Law, Software Engineering, Finance, Academic Research).
+        </p>
+        <div class="persona-presets">
+          <button type="button" class="preset-chip" data-persona="Act as a rigorous Academic Research Assistant. Highlight methodology, sample sizes, statistical significance, and limitations.">🎓 Academic Researcher</button>
+          <button type="button" class="preset-chip" data-persona="Act as a Legal & Compliance Analyst. Focus on exact clauses, obligations, definitions, liabilities, and exceptions.">⚖️ Legal & Contracts</button>
+          <button type="button" class="preset-chip" data-persona="Act as a Principal Systems Engineer. Emphasize architecture, APIs, performance bottlenecks, edge cases, and implementation details.">💻 Engineering & Tech</button>
+          <button type="button" class="preset-chip" data-persona="Act as a Clinical & Biomedical Literature Reviewer. Focus on clinical outcomes, dosages, contraindications, and study evidence.">🩺 Medical / Bio</button>
+          <button type="button" class="preset-chip" data-persona="">🧹 Clear Persona</button>
+        </div>
+        <textarea
+          id="customPersonaInput"
+          rows="4"
+          placeholder="Add any custom instructions for how Pure RAG should interpret your documents and format answers..."
+        ></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="primary-btn" id="savePersonaBtn">Save Domain Instructions</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
