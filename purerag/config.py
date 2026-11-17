@@ -45,16 +45,16 @@ class PureRAGConfig:
     # LLM settings
     llm_provider: str = "ollama"  # "ollama", "openai_compat", "extractive_fallback"
     ollama_base_url: str = "http://127.0.0.1:11434"
-    llm_model: str = "qwen2.5:3b"
+    llm_model: str = "qwen3:4b"
     openai_api_base: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
 
     # Embedding & Retrieval settings (SOTA Hybrid + Rerank)
-    embedding_backend: str = "fastembed"  # "fastembed", "ollama", "hashed_ngram"
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_backend: str = "fastembed"  # "fastembed", "local_hf_or_fastembed", "ollama", "hashed_ngram"
+    embedding_model: str = "Snowflake/snowflake-arctic-embed-m"
     ollama_embedding_model: str = "nomic-embed-text"
     use_reranker: bool = True
-    reranker_model: str = "ms-marco-MiniLM-L-12-v2"
+    reranker_model: str = "BAAI/bge-reranker-base"
 
     # Chunking & Hybrid RRF parameters
     chunk_size_chars: int = 1200

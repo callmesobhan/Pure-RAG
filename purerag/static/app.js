@@ -584,45 +584,57 @@ async function loadAndOpenHardwareModal() {
     document.getElementById("specGpu").textContent = hw.gpu_name;
 
     const rec = hw.recommendation_details;
-    document.getElementById("recTitle").textContent = `${rec.name} — ${rec.llm_model}`;
-    document.getElementById("recReason").textContent =
-      `${rec.why_recommended} ` +
-      (hw.ollama_running
-        ? `(Ollama is running locally with ${hw.ollama_models.length} model(s) installed.)`
-        : `(Ollama not detected running; Pure RAG will use instant extractive synthesis or Ollama once started.)`);
+    const disc = hw.discovered_local_models || {};
+    document.getElementById("recTitle").textContent = `${rec.name} — Active LLM: ${rec.llm_model}`;
+    document.getElementById("recReason").textContent = rec.why_recommended;
+
+    const discBox = document.getElementById("discoveredModelsBox");
+    if (discBox) {
+      const llmList = (disc.ollama_llms || []).join(", ") || "None";
+      const embList = [...(disc.ollama_embeddings || []), ...(disc.hf_embeddings || [])].join(", ") || "Built-in Hashed N-Gram";
+      const rerankList = (disc.hf_rerankers || []).join(", ") || "Built-in Cross-Proximity";
+      discBox.innerHTML = `
+        <strong>📦 Detected On-Device Models (Reused Automatically — Zero Download Needed):</strong><br/>
+        • <strong>Local LLMs:</strong> <code>${escapeHtml(llmList)}</code><br/>
+        • <strong>Local Embedders:</strong> <code>${escapeHtml(embList)}</code><br/>
+        • <strong>Local Rerankers:</strong> <code>${escapeHtml(rerankList)}</code>
+      `;
+    }
 
     state.selectedTierId = cfg.hardware_profiled ? cfg.selected_tier : hw.recommended_tier;
-    renderTiersGrid(hw.all_tiers, state.selectedTierId);
+    renderTiersGrid(hw.all_tiers, state.selectedTierId, disc);
 
     const activeTier = hw.all_tiers[state.selectedTierId] || rec;
     setupLlmProvider.value = cfg.llm_provider || "ollama";
-    setupLlmModel.value = cfg.llm_model || activeTier.llm_model;
-    setupEmbeddingBackend.value = cfg.embedding_backend || activeTier.embedding_backend;
+    setupLlmModel.value = disc.best_local_llm || cfg.llm_model || activeTier.llm_model;
+    setupEmbeddingBackend.value = disc.best_local_embedder_backend || cfg.embedding_backend || activeTier.embedding_backend;
     setupUseReranker.checked = cfg.use_reranker ?? activeTier.reranker_enabled;
   } catch (err) {
     console.error("Error loading hardware profile:", err);
   }
 }
 
-function renderTiersGrid(allTiers, selectedId) {
+function renderTiersGrid(allTiers, selectedId, disc = {}) {
   tiersGrid.innerHTML = "";
   for (const [tierId, tier] of Object.entries(allTiers)) {
     const card = document.createElement("div");
     card.className = `tier-card ${tierId === selectedId ? "selected" : ""}`;
+    const alts = (tier.llm_alternatives || []).slice(0, 3).join(", ");
     card.innerHTML = `
       <div class="tier-card-top">
         <strong>${escapeHtml(tier.name)}</strong>
         <span class="tier-badge">${escapeHtml(tier.badge)}</span>
       </div>
-      <div class="tier-models">LLM: ${escapeHtml(tier.llm_model)} (${tier.llm_size_gb}GB) • Embed: ${escapeHtml(tier.embedding_model)}</div>
+      <div class="tier-models">LLM: ${escapeHtml(tier.llm_model)} (${tier.llm_size_gb}GB) • Alts: ${escapeHtml(alts)}</div>
+      <div class="tier-models">Embed: ${escapeHtml(tier.embedding_model)} • Rerank: ${escapeHtml(tier.reranker_model)}</div>
       <div class="tier-desc">${escapeHtml(tier.description)}</div>
     `;
     card.addEventListener("click", () => {
       state.selectedTierId = tierId;
-      setupLlmModel.value = tier.llm_model;
-      setupEmbeddingBackend.value = tier.embedding_backend;
+      setupLlmModel.value = disc.best_local_llm || tier.llm_model;
+      setupEmbeddingBackend.value = disc.best_local_embedder_backend || tier.embedding_backend;
       setupUseReranker.checked = tier.reranker_enabled;
-      renderTiersGrid(allTiers, tierId);
+      renderTiersGrid(allTiers, tierId, disc);
     });
     tiersGrid.appendChild(card);
   }

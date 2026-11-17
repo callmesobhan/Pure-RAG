@@ -18,6 +18,7 @@ import hashlib
 import math
 import re
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -89,11 +90,36 @@ class LocalEmbedder:
         self.ollama_base_url = ollama_base_url.rstrip("/")
         self.allow_download = allow_download
         self._fastembed_model = None
+        self._st_model = None
         self.active_backend = "hashed_ngram"
         self._init_backend()
 
     def _init_backend(self) -> None:
-        if self.requested_backend == "fastembed" and self.allow_download:
+        # 1. Check if the requested model is already cached locally in HuggingFace Hub (~/.cache/huggingface/hub)
+        #    so we can load it with local_files_only=True WITHOUT any network download!
+        hf_cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{self.model_name.replace('/', '--')}"
+        is_locally_cached_hf = hf_cache_dir.exists()
+
+        if is_locally_cached_hf:
+            try:
+                from sentence_transformers import SentenceTransformer  # type: ignore
+
+                self._st_model = SentenceTransformer(self.model_name, local_files_only=True)
+                self.active_backend = f"local_hf:{self.model_name}"
+                return
+            except Exception:
+                pass
+            try:
+                from fastembed import TextEmbedding  # type: ignore
+
+                self._fastembed_model = TextEmbedding(model_name=self.model_name, local_files_only=True)
+                self.active_backend = f"fastembed_local:{self.model_name}"
+                return
+            except Exception:
+                pass
+
+        # 2. If user approved downloads, allow FastEmbed or SentenceTransformers
+        if self.requested_backend in ("fastembed", "local_hf_or_fastembed") and self.allow_download:
             try:
                 from fastembed import TextEmbedding  # type: ignore
 
@@ -102,7 +128,16 @@ class LocalEmbedder:
                 return
             except Exception:
                 pass
+            try:
+                from sentence_transformers import SentenceTransformer  # type: ignore
 
+                self._st_model = SentenceTransformer(self.model_name)
+                self.active_backend = f"sentence_transformers:{self.model_name}"
+                return
+            except Exception:
+                pass
+
+        # 3. Check local Ollama embeddings (never downloads automatically, uses installed model)
         if self.requested_backend == "ollama":
             try:
                 resp = requests.post(
@@ -116,7 +151,7 @@ class LocalEmbedder:
             except Exception:
                 pass
 
-        # Deterministic 512-dim signed feature-hashing embedder over word + char n-grams
+        # 4. Deterministic 512-dim signed feature-hashing embedder over word + char n-grams
         self.active_backend = "hashed_ngram_512d"
 
     @staticmethod
@@ -152,6 +187,13 @@ class LocalEmbedder:
     def embed_texts(self, texts: List[str]) -> np.ndarray:
         if not texts:
             return np.zeros((0, 512), dtype=np.float32)
+
+        if self._st_model is not None:
+            try:
+                vecs = self._st_model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+                return np.asarray(vecs, dtype=np.float32)
+            except Exception:
+                pass
 
         if self._fastembed_model is not None:
             try:
@@ -201,12 +243,27 @@ class CrossEncoderReranker:
         self.model_name = model_name
         self.allow_download = allow_download
         self._ranker = None
+        self._st_cross_encoder = None
         self.active_reranker = "disabled"
         if self.enabled:
             self._init_ranker()
 
     def _init_ranker(self) -> None:
-        if self.allow_download:
+        # 1. Check if reranker is already cached locally in HuggingFace Hub (~/.cache/huggingface/hub)
+        hf_cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{self.model_name.replace('/', '--')}"
+        if hf_cache_dir.exists():
+            try:
+                from sentence_transformers import CrossEncoder  # type: ignore
+
+                self._st_cross_encoder = CrossEncoder(self.model_name, local_files_only=True)
+                self.active_reranker = f"local_hf_cross_encoder:{self.model_name}"
+                return
+            except Exception:
+                pass
+
+        # 2. Check FlashRank local cache or download if approved
+        fr_cached = (Path("/tmp") / self.model_name).exists() or (Path.home() / ".cache" / "flashrank" / self.model_name).exists()
+        if fr_cached or self.allow_download:
             try:
                 from flashrank import Ranker  # type: ignore
 
@@ -215,6 +272,17 @@ class CrossEncoderReranker:
                 return
             except Exception:
                 pass
+
+        if self.allow_download:
+            try:
+                from sentence_transformers import CrossEncoder  # type: ignore
+
+                self._st_cross_encoder = CrossEncoder(self.model_name)
+                self.active_reranker = f"cross_encoder:{self.model_name}"
+                return
+            except Exception:
+                pass
+
         self.active_reranker = "cross_proximity_scorer"
 
     @staticmethod
@@ -258,6 +326,20 @@ class CrossEncoderReranker:
     ) -> List[RetrievedCandidate]:
         if not candidates or not self.enabled:
             return candidates[:top_k]
+
+        if self._st_cross_encoder is not None:
+            try:
+                pairs = [(query, c.chunk.contextualized_text) for c in candidates]
+                scores = self._st_cross_encoder.predict(pairs, show_progress_bar=False)
+                for cand, raw_s in zip(candidates, scores):
+                    # Sigmoid normalize raw logits to [0, 1]
+                    norm_s = float(1.0 / (1.0 + math.exp(-float(raw_s))))
+                    cand.rerank_score = norm_s
+                    cand.final_score = 0.70 * norm_s + 0.30 * min(1.0, cand.rrf_score * 30.0)
+                candidates.sort(key=lambda x: x.final_score, reverse=True)
+                return candidates[:top_k]
+            except Exception:
+                pass
 
         if self._ranker is not None:
             try:

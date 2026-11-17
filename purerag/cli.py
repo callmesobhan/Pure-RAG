@@ -30,7 +30,7 @@ console = Console()
 
 
 def _print_hardware_report(hw_dict: dict) -> None:
-    table = Table(title="🖥️  Pure RAG — Device Capability & Hardware Analysis", show_header=True, header_style="bold cyan")
+    table = Table(title="🖥️  Pure RAG — Device Capability & Local Model Analysis", show_header=True, header_style="bold cyan")
     table.add_column("Property", style="bold")
     table.add_column("Detected Value")
 
@@ -39,23 +39,49 @@ def _print_hardware_report(hw_dict: dict) -> None:
     table.add_row("System Memory (RAM)", f"{hw_dict['ram_total_gb']} GB Total ({hw_dict['ram_available_gb']} GB Available)")
     table.add_row("Free Disk Space", f"{hw_dict['disk_free_gb']} GB Free")
     table.add_row("GPU Acceleration", f"{hw_dict['gpu_name']} [{hw_dict['gpu_acceleration']}]")
-    ollama_str = (
-        f"✅ Running ({len(hw_dict['ollama_models'])} models installed)"
-        if hw_dict["ollama_running"]
-        else ("⚠️ Installed (Not running)" if hw_dict["ollama_installed"] else "ℹ️ Not installed (Extractive fallback ready)")
+
+    disc = hw_dict.get("discovered_local_models") or {}
+    local_llms = disc.get("ollama_llms") or []
+    local_embeds = (disc.get("ollama_embeddings") or []) + (disc.get("hf_embeddings") or [])
+    local_rerankers = disc.get("hf_rerankers") or []
+
+    table.add_row(
+        "Installed Local LLMs",
+        f"✅ {', '.join(local_llms)} (Best: [bold green]{disc.get('best_local_llm')}[/bold green])"
+        if local_llms
+        else "ℹ️ None found on disk",
     )
-    table.add_row("Local Ollama Status", ollama_str)
+    table.add_row(
+        "Cached Local Embedders",
+        f"✅ {', '.join(local_embeds)} (Best: [bold green]{disc.get('best_local_embedder')}[/bold green])"
+        if local_embeds
+        else "ℹ️ None cached yet (Built-in Hashed N-Gram ready)",
+    )
+    table.add_row(
+        "Cached Local Rerankers",
+        f"✅ {', '.join(local_rerankers)} (Best: [bold green]{disc.get('best_local_reranker')}[/bold green])"
+        if local_rerankers
+        else "ℹ️ None cached yet (Built-in Cross-Proximity ready)",
+    )
     console.print(table)
 
     rec = hw_dict["recommendation_details"]
+    llm_tag = " [bold green](Already Installed — 0 GB Download!)[/bold green]" if rec.get("llm_already_installed") else f" (~{rec['llm_size_gb']} GB if downloaded)"
+    emb_tag = " [bold green](Already Cached — 0 MB Download!)[/bold green]" if rec.get("embedding_already_installed") else f" (~{rec['embedding_size_mb']} MB if downloaded)"
+    rerank_tag = (
+        " [bold green](Already Cached — 0 MB Download!)[/bold green]"
+        if rec.get("reranker_already_installed")
+        else (f" (~{rec['reranker_size_mb']} MB if downloaded)" if rec["reranker_enabled"] else "")
+    )
+
     console.print(
         Panel(
             f"[bold green]Recommended Tier:[/bold green] {rec['name']} ({rec['badge']})\n"
-            f"[bold]Recommended Local LLM:[/bold] {rec['llm_model']} (~{rec['llm_size_gb']} GB)\n"
-            f"[bold]Dense Embeddings:[/bold] {rec['embedding_model']} (~{rec['embedding_size_mb']} MB)\n"
-            f"[bold]Cross-Encoder Reranker:[/bold] {'Enabled (' + rec['reranker_model'] + ')' if rec['reranker_enabled'] else 'Disabled'}\n\n"
+            f"[bold]Active/Recommended Local LLM:[/bold] {rec['llm_model']}{llm_tag}\n"
+            f"[bold]Dense Embeddings:[/bold] {rec['embedding_model']}{emb_tag}\n"
+            f"[bold]Cross-Encoder Reranker:[/bold] {'Enabled (' + rec['reranker_model'] + ')' + rerank_tag if rec['reranker_enabled'] else 'Disabled'}\n\n"
             f"[italic]{rec['why_recommended']}[/italic]",
-            title="🎯 Optimal RAG Stack Recommendation",
+            title="🎯 Optimal RAG Stack (Local Models Prioritized)",
             border_style="green",
         )
     )
@@ -98,31 +124,43 @@ def run_interactive_or_agent_setup(
         approved = True
 
     tier_obj = HARDWARE_TIERS[chosen_tier_id]
+    disc = hw_dict.get("discovered_local_models") or {}
+
+    # Always prefer already-present local models over downloading new ones!
+    selected_llm = disc.get("best_local_llm") or tier_obj.llm_model
+    selected_embedder = disc.get("best_local_embedder") or tier_obj.embedding_model
+    selected_embed_backend = (
+        disc.get("best_local_embedder_backend")
+        if disc.get("best_local_embedder")
+        else (tier_obj.embedding_backend if approved else "hashed_ngram")
+    )
+    selected_reranker = disc.get("best_local_reranker") or tier_obj.reranker_model
+
     cfg.hardware_profiled = True
     cfg.setup_approved = approved
     cfg.selected_tier = tier_obj.tier_id
-    cfg.llm_model = tier_obj.llm_model
-    cfg.embedding_backend = tier_obj.embedding_backend if approved else "hashed_ngram"
-    cfg.embedding_model = tier_obj.embedding_model
-    cfg.use_reranker = tier_obj.reranker_enabled
-    cfg.reranker_model = tier_obj.reranker_model
+    cfg.llm_model = selected_llm
+    cfg.embedding_backend = selected_embed_backend or "fastembed"
+    cfg.embedding_model = selected_embedder
+    cfg.use_reranker = True if disc.get("best_local_reranker") else tier_obj.reranker_enabled
+    cfg.reranker_model = selected_reranker
     cfg.chunk_size_chars = tier_obj.chunk_size_chars
     cfg.final_top_k = tier_obj.final_top_k
     cfg.save()
 
-    console.print(f"[bold green]✓ Saved configuration to {cfg.config_path}[/bold green]")
+    console.print(f"[bold green]✓ Saved configuration to {cfg.config_path} (LLM: {cfg.llm_model}, Embedder: {cfg.embedding_model}, Reranker: {cfg.reranker_model})[/bold green]")
 
-    # Optional SOTA dependencies & Ollama model pull with explicit permission
+    # Only offer to pull an Ollama model if NO local LLM is already installed!
     if approved and not yes and sys.stdin.isatty():
-        if hw.ollama_running and tier_obj.llm_model not in hw.ollama_models:
+        if hw.ollama_running and not disc.get("best_local_llm") and cfg.llm_model not in hw.ollama_models:
             want_pull = Confirm.ask(
-                f"Would you like to pull the recommended local LLM '{tier_obj.llm_model}' (~{tier_obj.llm_size_gb} GB) via Ollama now?",
+                f"No local Ollama LLM was found. Would you like to pull '{cfg.llm_model}' (~{tier_obj.llm_size_gb} GB) via Ollama now?",
                 default=False,
             )
             if want_pull:
                 pull_ollama = True
 
-    if approved and pull_ollama and hw.ollama_installed:
+    if approved and pull_ollama and hw.ollama_installed and cfg.llm_model not in hw.ollama_models:
         console.print(f"[cyan]Pulling Ollama model '{cfg.llm_model}'...[/cyan]")
         subprocess.run(["ollama", "pull", cfg.llm_model], check=False)
 

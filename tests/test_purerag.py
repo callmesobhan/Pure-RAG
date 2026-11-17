@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from purerag.config import PureRAGConfig
-from purerag.hardware import HARDWARE_TIERS, analyze_hardware, select_recommended_tier
+from purerag.hardware import HARDWARE_TIERS, analyze_hardware, discover_local_models, select_recommended_tier
 from purerag.rag.chunker import chunk_document
 from purerag.rag.engine import PureRAGEngine
 from purerag.rag.parser import parse_document
@@ -28,6 +28,17 @@ def test_hardware_profiler_and_tier_selection():
     assert profile.ram_total_gb > 0
     assert profile.cpu_cores_logical >= 1
     assert profile.recommended_tier in HARDWARE_TIERS
+    assert profile.discovered_local_models is not None
+    assert profile.active_zero_download_plan is not None
+
+    # Verify local model scoring & discovery reuses existing models
+    disc = discover_local_models(
+        ollama_models=["mistral:latest", "gemma4:12b", "nomic-embed-text:latest"],
+        ram_total_gb=16.0,
+    )
+    assert disc.best_local_llm == "gemma4:12b"
+    assert disc.best_local_embedder == "nomic-embed-text:latest"
+    assert disc.best_local_embedder_backend == "ollama"
 
     assert select_recommended_tier(4.0, False, "cpu_only", None) == "ultra_light"
     assert select_recommended_tier(12.0, False, "cpu_only", None) == "balanced"

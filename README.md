@@ -85,16 +85,24 @@ flowchart TD
 
 ---
 
-## 🖥️ Hardware Capability Tiers (Permissioned Setup)
+## 🖥️ Hardware Capability Tiers & Local Model Auto-Discovery
 
-Pure RAG automatically profiles your machine and recommends the best tier for your hardware:
+Pure RAG **automatically scans your device for already-installed models** across:
+- **Ollama** (`~/.ollama/models/manifests`, `ollama list`, and `/api/tags`)
+- **HuggingFace Hub Cache** (`~/.cache/huggingface/hub/models--*`)
+- **FastEmbed & FlashRank Caches** (`~/.cache/fastembed`, `~/.cache/flashrank`)
+- **LM Studio GGUF Models** (`~/.lmstudio/models`)
 
-| Tier | Target Hardware | Recommended Local LLM | Dense Embedder | Cross-Encoder Reranker |
+If you already have local LLMs (e.g., `gemma4:12b`, `qwen3:8b`, `mistral:latest`), local embeddings (e.g., `intfloat/e5-large-v2`, `BAAI/bge-m3`), or local rerankers (e.g., `BAAI/bge-reranker-v2-m3`, `BAAI/bge-reranker-base`), **Pure RAG reuses them immediately with zero new downloads**.
+
+When recommending models for new setups, Pure RAG uses the latest 2025–2026 frontier open-weight models tailored to your RAM tier:
+
+| Tier | Target Hardware | Primary SOTA LLM (Alternatives) | Dense Embedder (Alternatives) | Cross-Encoder Reranker |
 | :--- | :--- | :--- | :--- | :--- |
-| **`ultra_light`** | `< 8 GB RAM` / CPU-only | `qwen2.5:1.5b` (~1.0 GB) | `BAAI/bge-small-en-v1.5` | Optional / Fast Proximity |
-| **`balanced`** | `8–15 GB RAM` Laptops | `llama3.2:3b` (~2.0 GB) | `BAAI/bge-small-en-v1.5` | `ms-marco-MiniLM-L-12-v2` |
-| **`performance`** | `16–31 GB RAM` / Apple Silicon / GPU | `qwen2.5:7b` (~4.7 GB) | `BAAI/bge-base-en-v1.5` | `ms-marco-MiniLM-L-12-v2` |
-| **`workstation`** | `32+ GB RAM` / High-VRAM GPU | `qwen2.5:14b` (~9.0 GB) | `BAAI/bge-large-en-v1.5` | `ms-marco-MiniLM-L-12-v2` |
+| **`ultra_light`** | `< 8 GB RAM` / CPU-only | **`qwen3:1.7b`** (`gemma3:1b`, `qwen3:0.6b`, `llama3.2:1b`) | **`Snowflake/snowflake-arctic-embed-s`** (`bge-small-en-v1.5`) | Optional / Fast Proximity |
+| **`balanced`** | `8–15 GB RAM` Laptops | **`qwen3:4b`** (`gemma3:4b`, `deepseek-r1:8b`, `llama3.2:3b`) | **`Snowflake/snowflake-arctic-embed-m`** (`bge-base-en-v1.5`) | **`BAAI/bge-reranker-base`** |
+| **`performance`** | `16–31 GB RAM` / Apple Silicon / GPU | **`gemma4:12b`** (`qwen3:8b`, `qwen3:14b`, `gemma3:12b`, `phi4:14b`, `deepseek-r1:14b`) | **`BAAI/bge-m3`** (`intfloat/e5-large-v2`, `arctic-embed-l`) | **`BAAI/bge-reranker-v2-m3`** |
+| **`workstation`** | `32+ GB RAM` / High-VRAM GPU | **`qwen3:30b-a3b` (MoE)** (`qwen3:32b`, `gemma3:27b`, `deepseek-r1:32b`, `llama3.3:70b`) | **`BAAI/bge-m3`** (`Qwen/Qwen3-Embedding-4B`, `e5-large-v2`) | **`BAAI/bge-reranker-v2-m3`** |
 
 > **Works Offline Immediately**: Even if you haven't installed [Ollama](https://ollama.com) or approved any model downloads yet, Pure RAG includes a built-in **Zero-Download Hashed N-Gram + BM25 Hybrid Retriever** and **Promptability-Aware Extractive Synthesizer**, so you can test and query your PDFs the second you clone the repo!
 

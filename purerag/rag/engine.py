@@ -43,6 +43,27 @@ class PureRAGEngine:
         self.documents_meta: Dict[str, IndexedDocumentMeta] = {}
         self.chunks: List[DocumentChunk] = []
 
+        # Auto-adopt already-present local models on first run before initializing components
+        if not self.config.hardware_profiled:
+            try:
+                from purerag.hardware import analyze_hardware
+
+                hw = analyze_hardware(
+                    workspace_dir=Path(self.config.pdfs_dir).parent,
+                    ollama_base_url=self.config.ollama_base_url,
+                )
+                disc = hw.discovered_local_models or {}
+                if disc.get("best_local_llm"):
+                    self.config.llm_model = disc["best_local_llm"]
+                if disc.get("best_local_embedder"):
+                    self.config.embedding_model = disc["best_local_embedder"]
+                    if disc.get("best_local_embedder_backend"):
+                        self.config.embedding_backend = disc["best_local_embedder_backend"]
+                if disc.get("best_local_reranker"):
+                    self.config.reranker_model = disc["best_local_reranker"]
+            except Exception:
+                pass
+
         self.embedder = LocalEmbedder(
             backend=self.config.embedding_backend,
             model_name=self.config.embedding_model,
