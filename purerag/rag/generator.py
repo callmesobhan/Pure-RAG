@@ -354,22 +354,24 @@ class GroundedGenerator:
             active_model = self._resolve_active_ollama_model()
             if active_model:
                 try:
-                    num_predict = 250 if options.length == "shorter" else (600 if options.length == "balanced" else 1400)
+                    num_predict = 1200 if options.length == "shorter" else (2048 if options.length == "balanced" else 3500)
                     r = requests.post(
                         f"{self.ollama_base_url}/api/chat",
                         json={
                             "model": active_model,
                             "messages": messages,
                             "stream": False,
+                            "think": False,
                             "options": {
                                 "temperature": options.temperature,
                                 "num_predict": num_predict,
                             },
                         },
-                        timeout=90.0,
+                        timeout=120.0,
                     )
                     if r.status_code == 200:
-                        content = r.json().get("message", {}).get("content", "").strip()
+                        msg_obj = r.json().get("message", {}) or {}
+                        content = (msg_obj.get("content") or "").strip()
                         if content:
                             return content, f"ollama:{active_model}"
                 except Exception:
@@ -419,34 +421,39 @@ class GroundedGenerator:
             active_model = self._resolve_active_ollama_model()
             if active_model:
                 try:
-                    num_predict = 250 if options.length == "shorter" else (600 if options.length == "balanced" else 1400)
+                    num_predict = 1200 if options.length == "shorter" else (2048 if options.length == "balanced" else 3500)
+                    emitted_any_content = False
                     with requests.post(
                         f"{self.ollama_base_url}/api/chat",
                         json={
                             "model": active_model,
                             "messages": messages,
                             "stream": True,
+                            "think": False,
                             "options": {
                                 "temperature": options.temperature,
                                 "num_predict": num_predict,
                             },
                         },
                         stream=True,
-                        timeout=90.0,
+                        timeout=120.0,
                     ) as resp:
                         if resp.status_code == 200:
                             for raw_line in resp.iter_lines():
                                 if not raw_line:
                                     continue
                                 data = json.loads(raw_line.decode("utf-8"))
-                                token = data.get("message", {}).get("content", "")
+                                msg_obj = data.get("message", {}) or {}
+                                token = msg_obj.get("content", "")
                                 if token:
+                                    emitted_any_content = True
                                     yield {
                                         "type": "token",
                                         "content": token,
                                         "model": f"ollama:{active_model}",
                                     }
-                            return
+                            if emitted_any_content:
+                                return
                 except Exception:
                     pass
 

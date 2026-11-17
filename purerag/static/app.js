@@ -87,6 +87,14 @@ function renderMarkdownWithBracketCitations(rawText, citations = []) {
     return `<pre><code>${code.trim()}</code></pre>`;
   });
 
+  // Normalize grouped bracketed numbers like `[1, 2, 3]` or `[1, 2]` into `[1][2][3]` first
+  html = html.replace(/\[(\d{1,2}(?:\s*,\s*\d{1,2})+)\]/g, (_, groupStr) => {
+    return groupStr
+      .split(",")
+      .map((s) => `[${s.trim()}]`)
+      .join("");
+  });
+
   // Replace bracketed numbers `[1]`, `[2]` with clean interactive badge pills
   html = html.replace(/\[(\d{1,2})\]/g, (full, numStr) => {
     const num = parseInt(numStr, 10);
