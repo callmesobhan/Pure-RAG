@@ -44,7 +44,7 @@ class PureRAGEngine:
         self.chunks: List[DocumentChunk] = []
 
         # Auto-adopt already-present local models on first run before initializing components
-        if not self.config.hardware_profiled:
+        if not self.config.hardware_profiled and self.config.embedding_backend != "hashed_ngram":
             try:
                 from purerag.hardware import analyze_hardware
 

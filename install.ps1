@@ -32,8 +32,8 @@ Write-Host "Found Python: $(& $pyCmd --version)" -ForegroundColor Green
 
 # 2. Create .venv
 if (-not (Test-Path ".venv")) {
-    Write-Host "Creating isolated virtual environment in .\.venv ..."
-    & $pyCmd -m venv .venv
+    Write-Host "Creating virtual environment in .\.venv ..."
+    & $pyCmd -m venv --system-site-packages .venv
 }
 
 $venvPy = ".\.venv\Scripts\python.exe"

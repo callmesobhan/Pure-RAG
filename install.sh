@@ -39,8 +39,8 @@ echo "✓ Found Python: $($PY_BIN --version)"
 
 # 2. Create virtual environment (.venv) if not present
 if [ ! -d ".venv" ]; then
-  echo "📦 Creating isolated Python virtual environment in ./.venv ..."
-  "$PY_BIN" -m venv .venv
+  echo "📦 Creating Python virtual environment in ./.venv (with access to system ML packages)..."
+  "$PY_BIN" -m venv --system-site-packages .venv
 fi
 
 VENV_PY="./.venv/bin/python"

@@ -100,7 +100,7 @@ class LocalEmbedder:
         hf_cache_dir = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{self.model_name.replace('/', '--')}"
         is_locally_cached_hf = hf_cache_dir.exists()
 
-        if is_locally_cached_hf:
+        if is_locally_cached_hf and self.requested_backend != "hashed_ngram":
             try:
                 from sentence_transformers import SentenceTransformer  # type: ignore
 
@@ -115,6 +115,25 @@ class LocalEmbedder:
                 self._fastembed_model = TextEmbedding(model_name=self.model_name, local_files_only=True)
                 self.active_backend = f"fastembed_local:{self.model_name}"
                 return
+            except Exception:
+                pass
+
+        # 1b. If the configured model wasn't cached, check if ANY embedding model is already cached in ~/.cache/huggingface/hub
+        if self.requested_backend != "hashed_ngram":
+            try:
+                from purerag.hardware import _scan_huggingface_and_local_caches
+
+                cached_embeds, _, _, _ = _scan_huggingface_and_local_caches()
+                for alt_embed in cached_embeds:
+                    try:
+                        from sentence_transformers import SentenceTransformer  # type: ignore
+
+                        self._st_model = SentenceTransformer(alt_embed, local_files_only=True)
+                        self.model_name = alt_embed
+                        self.active_backend = f"local_hf:{alt_embed}"
+                        return
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -190,7 +209,12 @@ class LocalEmbedder:
 
         if self._st_model is not None:
             try:
-                vecs = self._st_model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+                vecs = self._st_model.encode(
+                    texts,
+                    batch_size=64,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
                 return np.asarray(vecs, dtype=np.float32)
             except Exception:
                 pass
@@ -260,6 +284,24 @@ class CrossEncoderReranker:
                 return
             except Exception:
                 pass
+
+        # 1b. If the configured reranker wasn't cached, check if ANY reranker is already cached in ~/.cache/huggingface/hub
+        try:
+            from purerag.hardware import _scan_huggingface_and_local_caches
+
+            _, cached_rerankers, _, _ = _scan_huggingface_and_local_caches()
+            for alt_reranker in cached_rerankers:
+                try:
+                    from sentence_transformers import CrossEncoder  # type: ignore
+
+                    self._st_cross_encoder = CrossEncoder(alt_reranker, local_files_only=True)
+                    self.model_name = alt_reranker
+                    self.active_reranker = f"local_hf_cross_encoder:{alt_reranker}"
+                    return
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # 2. Check FlashRank local cache or download if approved
         fr_cached = (Path("/tmp") / self.model_name).exists() or (Path.home() / ".cache" / "flashrank" / self.model_name).exists()

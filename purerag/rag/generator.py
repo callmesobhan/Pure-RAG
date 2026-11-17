@@ -11,7 +11,11 @@ Supports:
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import time
 from dataclasses import dataclass
 from typing import Dict, Generator, List, Optional
 
@@ -144,6 +148,32 @@ def _clean_sentence_for_display(text: str) -> str:
     return s
 
 
+_INCOMPLETE_ENDING_WORDS = {
+    "and", "or", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at",
+    "by", "from", "as", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "that", "which", "who", "whom", "whose", "where",
+    "when", "why", "how", "than", "then", "into", "onto", "upon", "within",
+    "without", "between", "among", "through", "during", "before", "after",
+}
+
+
+def _is_complete_sentence(s: str) -> bool:
+    if len(s) < 40:
+        return False
+    if s[0].islower() and not s.startswith("`"):
+        return False
+    # Must end with sentence punctuation
+    if s[-1] not in ".!?":
+        return False
+    # Check last word before punctuation isn't a dangling preposition/conjunction/auxiliary
+    words = re.findall(r"[a-zA-Z]+", s)
+    if len(words) < 6:
+        return False
+    if words[-1].lower() in _INCOMPLETE_ENDING_WORDS:
+        return False
+    return True
+
+
 def synthesize_extractive_response(
     query: str,
     candidates: List[RetrievedCandidate],
@@ -172,8 +202,7 @@ def synthesize_extractive_response(
             if not raw_line or raw_line.startswith("#") or raw_line.startswith("---"):
                 continue
             s_clean = _clean_sentence_for_display(raw_line)
-            # Ignore fragments that start lowercase (broken mid-sentence slice) or are too short
-            if len(s_clean) < 35 or (s_clean[0].islower() and not s_clean.startswith("`")):
+            if not _is_complete_sentence(s_clean):
                 continue
             s_tokens = set(tokenize_for_bm25(s_clean))
             overlap = len(q_tokens & s_tokens) / max(1, len(q_tokens))
@@ -254,8 +283,45 @@ class GroundedGenerator:
         self.openai_api_base = openai_api_base.rstrip("/")
         self.openai_api_key = openai_api_key
 
+    def _ensure_ollama_daemon_running(self) -> bool:
+        """
+        Checks if local Ollama HTTP API is reachable; if not, and `ollama` binary
+        is installed on the machine, automatically launches `ollama serve` in the background!
+        """
+        try:
+            resp = requests.get(f"{self.ollama_base_url}/api/tags", timeout=1.5)
+            if resp.status_code == 200:
+                return True
+        except Exception:
+            pass
+
+        ollama_bin = shutil.which("ollama") or "/usr/local/bin/ollama"
+        if not shutil.which("ollama") and not os.path.exists(ollama_bin):
+            return False
+
+        try:
+            subprocess.Popen(
+                [ollama_bin, "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            for _ in range(12):
+                time.sleep(0.35)
+                try:
+                    r = requests.get(f"{self.ollama_base_url}/api/tags", timeout=1.0)
+                    if r.status_code == 200:
+                        return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
+
     def _resolve_active_ollama_model(self) -> Optional[str]:
-        """Checks if Ollama is reachable and returns the configured model or first available LLM."""
+        """Checks if Ollama is reachable (starting it if needed) and returns the configured model."""
+        if not self._ensure_ollama_daemon_running():
+            return None
         try:
             resp = requests.get(f"{self.ollama_base_url}/api/tags", timeout=2.0)
             if resp.status_code != 200:

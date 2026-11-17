@@ -66,6 +66,12 @@ def _clean_extracted_text(text: str) -> str:
     # Normalize excessive blank lines while keeping paragraph and table breaks
     text = text.replace("\x00", "")
     text = re.sub(r"[ \t]+\n", "\n", text)
+    # Rejoin hyphenated line-wrap words in PDFs (e.g. "radi-\nation" -> "radiation")
+    text = re.sub(r"([a-zA-Z])-\n([a-z])", r"\1\2", text)
+    # Unwrap hard-wrapped PDF lines inside a paragraph into continuous sentences:
+    # When a line ends with a word/comma/colon (not sentence punctuation or heading/list)
+    # and the next line starts with a word, join them with a space instead of a newline!
+    text = re.sub(r"(?<=[a-zA-Z0-9,;:])\n(?=[a-z0-9(])", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
