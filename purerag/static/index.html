@@ -63,6 +63,22 @@
         <div class="empty-docs">Scanning <code>pdfs/</code>...</div>
       </div>
 
+      <!-- Chat Sessions History Header -->
+      <div class="section-header">
+        <div class="section-title-group">
+          <span>Chat History</span>
+          <span class="badge-pill" id="historyCountBadge">0</span>
+        </div>
+        <button class="sync-btn" id="openHistoryModalBtn" title="Open Full Q&A History & Metadata Manager">
+          Manage
+        </button>
+      </div>
+
+      <!-- Recent Chat Sessions List -->
+      <div class="session-list" id="sessionList">
+        <div class="empty-docs">No past chats yet.</div>
+      </div>
+
       <!-- Minimal Sidebar Footer -->
       <div class="sidebar-footer">
         <div class="active-model-row" title="Active Local Model & Index Status">
@@ -103,6 +119,9 @@
             <input type="checkbox" id="autoSpeakToggle" />
             <span>🔊 Auto-Read</span>
           </label>
+          <button class="text-btn" id="topbarHistoryBtn" title="Browse & search all past Q&A turns and metadata">
+            🕒 History
+          </button>
           <button class="text-btn" id="openCustomPersonaBtn" title="Set custom domain instructions">
             Persona
           </button>
@@ -338,6 +357,41 @@
       </div>
       <div class="modal-footer">
         <button class="primary-btn" id="savePersonaBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Q&A History & Metadata Manager -->
+  <div class="modal-backdrop hidden" id="historyModal">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">PERSISTENT Q&amp;A ARCHIVE</span>
+          <h3>Q&amp;A History &amp; Metadata Manager</h3>
+        </div>
+        <button class="icon-btn" id="closeHistoryModalBtn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="history-toolbar">
+          <input
+            type="text"
+            id="historySearchInput"
+            class="history-search-input"
+            placeholder="Search across all questions, answers, models, or cited PDFs..."
+          />
+          <div class="history-toolbar-actions">
+            <a href="/api/history/export?format=md" download="purerag_qa_history.md" class="secondary-btn" style="text-decoration:none;">⬇️ Export Markdown</a>
+            <a href="/api/history/export?format=json" download="purerag_qa_history.json" class="secondary-btn" style="text-decoration:none;">⬇️ Export JSON</a>
+            <button type="button" class="secondary-btn danger-btn" id="clearAllHistoryBtn">🗑️ Clear All</button>
+          </div>
+        </div>
+
+        <div class="history-stats-bar" id="historyStatsBar">
+          Loading saved Q&amp;A turns...
+        </div>
+
+        <div class="history-turns-list" id="historyTurnsList"></div>
       </div>
     </div>
   </div>

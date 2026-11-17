@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 import requests
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, description="The user's question or prompt")
+    session_id: Optional[str] = Field(default=None, description="Optional chat session ID to group turns")
     length: Optional[str] = Field(default=None, description="shorter | balanced | longer")
     style: Optional[str] = Field(
         default=None,
@@ -43,6 +44,10 @@ class ChatRequest(BaseModel):
     top_k: Optional[int] = Field(default=None, ge=1, le=20)
     filter_filenames: Optional[List[str]] = Field(default=None)
     chat_history: Optional[List[Dict[str, str]]] = Field(default=None)
+
+
+class RenameSessionRequest(BaseModel):
+    title: str = Field(..., min_length=1)
 
 
 class SetupApprovalRequest(BaseModel):
@@ -285,6 +290,7 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
             top_k=req.top_k,
             filter_filenames=req.filter_filenames,
             chat_history=req.chat_history,
+            session_id=req.session_id,
         )
         return result
 
@@ -299,7 +305,73 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
             top_k=req.top_k,
             filter_filenames=req.filter_filenames,
             chat_history=req.chat_history,
+            session_id=req.session_id,
         )
         return StreamingResponse(generator, media_type="text/event-stream")
+
+    # ==================== Q&A HISTORY & METADATA MANAGER API ====================
+    @app.get("/api/history")
+    async def list_history(q: Optional[str] = None):
+        sessions = app.state.engine.history.list_sessions(search_query=q)
+        turns = app.state.engine.history.list_all_turns(search_query=q)
+        return {
+            "total_sessions": len(sessions),
+            "total_turns": len(turns),
+            "sessions": sessions,
+            "turns": turns,
+        }
+
+    @app.get("/api/history/export")
+    async def export_history(format: str = "json", session_id: Optional[str] = None):
+        if format.lower() in ("md", "markdown"):
+            md_text = app.state.engine.history.export_markdown(session_id=session_id)
+            return PlainTextResponse(
+                md_text,
+                headers={"Content-Disposition": 'attachment; filename="purerag_qa_history.md"'},
+            )
+        if session_id:
+            sess = app.state.engine.history.get_session(session_id)
+            if not sess:
+                raise HTTPException(status_code=404, detail="Session not found")
+            return sess
+        return {
+            "sessions": [
+                app.state.engine.history.get_session(s["session_id"])
+                for s in app.state.engine.history.list_sessions()
+            ]
+        }
+
+    @app.get("/api/history/{session_id}")
+    async def get_history_session(session_id: str):
+        sess = app.state.engine.history.get_session(session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return sess
+
+    @app.patch("/api/history/{session_id}")
+    async def rename_history_session(session_id: str, req: RenameSessionRequest):
+        updated = app.state.engine.history.rename_session(session_id, req.title)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return updated
+
+    @app.delete("/api/history/{session_id}")
+    async def delete_history_session(session_id: str):
+        ok = app.state.engine.history.delete_session(session_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"deleted": session_id}
+
+    @app.delete("/api/history/{session_id}/turns/{turn_id}")
+    async def delete_history_turn(session_id: str, turn_id: str):
+        ok = app.state.engine.history.delete_turn(session_id, turn_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Turn not found")
+        return {"deleted_turn": turn_id, "session_id": session_id}
+
+    @app.delete("/api/history")
+    async def clear_all_history():
+        cleared = app.state.engine.history.clear_all()
+        return {"cleared_sessions": cleared}
 
     return app

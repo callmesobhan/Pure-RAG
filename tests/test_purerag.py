@@ -191,3 +191,30 @@ def test_fastapi_endpoints_and_sse_streaming(tmp_path: Path):
         assert "metadata" in event_types
         assert "token" in event_types
         assert "done" in event_types
+
+    # 5. Q&A History & Metadata Manager endpoints
+    r_hist = client.get("/api/history")
+    assert r_hist.status_code == 200
+    hist_data = r_hist.json()
+    assert hist_data["total_sessions"] >= 2
+    assert hist_data["total_turns"] >= 2
+    first_turn = hist_data["turns"][0]
+    assert "promptability" in first_turn
+    assert "pipeline_metrics" in first_turn
+    assert "citations" in first_turn
+
+    # Search history
+    r_search = client.get("/api/history", params={"q": "macOS"})
+    assert r_search.status_code == 200
+    assert r_search.json()["total_turns"] >= 1
+
+    # Export Markdown
+    r_export_md = client.get("/api/history/export", params={"format": "md"})
+    assert r_export_md.status_code == 200
+    assert "Pure RAG — Q&A History & Metadata Export" in r_export_md.text
+
+    # Delete a turn
+    sess_id = first_turn["session_id"]
+    turn_id = first_turn["turn_id"]
+    r_del = client.delete(f"/api/history/{sess_id}/turns/{turn_id}")
+    assert r_del.status_code == 200

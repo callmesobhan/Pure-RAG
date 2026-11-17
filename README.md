@@ -147,6 +147,12 @@ purerag ingest
 
 # Query your documents directly from the terminal
 purerag query "What is the 6-stage retrieval pipeline?" --length shorter --style bulleted
+
+# Browse, search, or export all saved Q&A turns and their full metadata
+purerag history
+purerag history --search "pair production"
+purerag history --export md > qa_history.md
+purerag history --export json > qa_history.json
 ```
 
 ---

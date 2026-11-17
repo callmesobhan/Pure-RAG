@@ -9,6 +9,7 @@
  */
 
 const state = {
+  currentSessionId: null,
   chatHistory: [],
   selectedLength: "balanced",
   selectedStyle: "standard",
@@ -389,10 +390,12 @@ promptInput.addEventListener("keydown", (e) => {
 sendBtn.addEventListener("click", () => sendMessage());
 
 document.getElementById("newChatBtn").addEventListener("click", () => {
+  state.currentSessionId = null;
   state.chatHistory = [];
   messagesList.innerHTML = "";
   welcomeHero.style.display = "block";
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  refreshHistorySidebar();
 });
 
 async function sendMessage() {
@@ -458,6 +461,7 @@ async function sendMessage() {
   try {
     const payload = {
       question,
+      session_id: state.currentSessionId,
       length: state.selectedLength,
       style: state.selectedStyle,
       top_k: state.topK,
@@ -500,9 +504,16 @@ async function sendMessage() {
           contentEl.innerHTML = renderMarkdownWithBracketCitations(accumulatedAnswer, citations);
           messagesContainer.scrollTop = messagesContainer.scrollHeight;
         } else if (evt.type === "done") {
+          if (evt.session_id) {
+            state.currentSessionId = evt.session_id;
+          }
           accumulatedAnswer = evt.answer || accumulatedAnswer;
           contentEl.innerHTML = renderMarkdownWithBracketCitations(accumulatedAnswer, citations);
-          metaInfoEl.textContent = `${state.selectedLength} • ${state.selectedStyle}`;
+          const pm = evt.pipeline_metrics || {};
+          const retMs = pm.retrieval_ms ?? 0;
+          const genMs = evt.generation_ms ?? pm.generation_ms ?? 0;
+          metaInfoEl.textContent = `${state.selectedLength} • ${state.selectedStyle} • ${evt.generator || ""} (${retMs}ms + ${genMs}ms)`;
+          refreshHistorySidebar();
         }
       }
     }
@@ -700,6 +711,232 @@ document.getElementById("savePersonaBtn").addEventListener("click", async () => 
   personaModal.classList.add("hidden");
 });
 
+// ==================== Q&A HISTORY & METADATA MANAGER ====================
+const sessionListEl = document.getElementById("sessionList");
+const historyCountBadge = document.getElementById("historyCountBadge");
+const historyModal = document.getElementById("historyModal");
+const openHistoryModalBtn = document.getElementById("openHistoryModalBtn");
+const topbarHistoryBtn = document.getElementById("topbarHistoryBtn");
+const closeHistoryModalBtn = document.getElementById("closeHistoryModalBtn");
+const historySearchInput = document.getElementById("historySearchInput");
+const historyStatsBar = document.getElementById("historyStatsBar");
+const historyTurnsList = document.getElementById("historyTurnsList");
+const clearAllHistoryBtn = document.getElementById("clearAllHistoryBtn");
+
+async function refreshHistorySidebar() {
+  try {
+    const res = await fetch("/api/history");
+    const data = await res.json();
+    const sessions = data.sessions || [];
+    if (historyCountBadge) historyCountBadge.textContent = data.total_turns ?? sessions.length;
+    if (!sessionListEl) return;
+
+    if (sessions.length === 0) {
+      sessionListEl.innerHTML = `<div class="empty-docs">No past chats yet.</div>`;
+      return;
+    }
+
+    sessionListEl.innerHTML = "";
+    for (const s of sessions) {
+      const isCurrent = s.session_id === state.currentSessionId;
+      const item = document.createElement("div");
+      item.className = `session-item ${isCurrent ? "active-session" : ""}`;
+      const timeStr = (s.updated_at_iso || "").slice(0, 16).replace("T", " ");
+      item.innerHTML = `
+        <div class="session-info" title="${escapeHtml(s.title)}">
+          <span class="session-title">💬 ${escapeHtml(s.title)}</span>
+          <span class="session-meta">${s.turn_count} Q&A • ${escapeHtml(timeStr)}</span>
+        </div>
+        <button class="doc-delete-btn" title="Delete session" aria-label="Delete session">✕</button>
+      `;
+
+      item.querySelector(".session-info").addEventListener("click", () => {
+        loadSavedSessionIntoChat(s.session_id);
+      });
+
+      item.querySelector(".doc-delete-btn").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await fetch(`/api/history/${encodeURIComponent(s.session_id)}`, { method: "DELETE" });
+        if (state.currentSessionId === s.session_id) {
+          state.currentSessionId = null;
+          state.chatHistory = [];
+          messagesList.innerHTML = "";
+          welcomeHero.style.display = "block";
+        }
+        await refreshHistorySidebar();
+      });
+
+      sessionListEl.appendChild(item);
+    }
+  } catch (err) {
+    console.error("Failed to load history sidebar:", err);
+  }
+}
+
+async function loadSavedSessionIntoChat(sessionId) {
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(sessionId)}`);
+    if (!res.ok) return;
+    const sess = await res.json();
+    state.currentSessionId = sess.session_id;
+    state.chatHistory = [];
+    messagesList.innerHTML = "";
+    welcomeHero.style.display = "none";
+
+    for (const t of sess.turns || []) {
+      // User bubble
+      const userRow = document.createElement("div");
+      userRow.className = "message-row user";
+      userRow.innerHTML = `<div class="message-bubble">${escapeHtml(t.question)}</div>`;
+      messagesList.appendChild(userRow);
+
+      // Assistant bubble
+      const cites = t.citations || [];
+      const pr = t.promptability || {};
+      const pm = t.pipeline_metrics || {};
+      const assistantRow = document.createElement("div");
+      assistantRow.className = "message-row assistant";
+      assistantRow.innerHTML = `
+        <div class="message-bubble">
+          <div class="msg-content">${renderMarkdownWithBracketCitations(t.answer, cites)}</div>
+          <div class="msg-footer-bar">
+            <div class="msg-actions">
+              <button class="msg-action-btn toggle-refs-btn">📚 References (${cites.length})</button>
+              <button class="msg-action-btn speak-btn">🔊 Speak</button>
+              <button class="msg-action-btn copy-btn">📋 Copy</button>
+            </div>
+            <span class="msg-meta-info">${escapeHtml(pr.length || "balanced")} • ${escapeHtml(pr.style || "standard")} • ${escapeHtml(pm.generator || "")} (${pm.retrieval_ms ?? 0}ms + ${pm.generation_ms ?? 0}ms)</span>
+          </div>
+          <div class="references-box hidden"></div>
+        </div>
+      `;
+      const refsBox = assistantRow.querySelector(".references-box");
+      renderNumberedReferences(refsBox, cites);
+
+      assistantRow.querySelector(".toggle-refs-btn").addEventListener("click", () => {
+        refsBox.classList.toggle("hidden");
+      });
+      assistantRow.querySelector(".msg-content").addEventListener("click", (e) => {
+        const badge = e.target.closest(".cite-ref");
+        if (!badge) return;
+        refsBox.classList.remove("hidden");
+        const refItem = refsBox.querySelector(`[data-ref-item="${badge.dataset.ref}"]`);
+        if (refItem) refItem.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+      assistantRow.querySelector(".speak-btn").addEventListener("click", () => speakTextAloud(t.answer));
+      const copyBtn = assistantRow.querySelector(".copy-btn");
+      copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(t.answer);
+        copyBtn.textContent = "✓ Copied";
+        setTimeout(() => (copyBtn.textContent = "📋 Copy"), 1500);
+      });
+
+      messagesList.appendChild(assistantRow);
+      state.chatHistory.push({ role: "user", content: t.question });
+      state.chatHistory.push({ role: "assistant", content: t.answer });
+    }
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    await refreshHistorySidebar();
+  } catch (err) {
+    console.error("Failed to restore session:", err);
+  }
+}
+
+async function loadAndOpenHistoryModal(searchQuery = "") {
+  historyModal.classList.remove("hidden");
+  try {
+    const url = searchQuery
+      ? `/api/history?q=${encodeURIComponent(searchQuery)}`
+      : "/api/history";
+    const res = await fetch(url);
+    const data = await res.json();
+    const turns = data.turns || [];
+    historyStatsBar.textContent = `Showing ${turns.length} Q&A turn(s) across ${data.total_sessions || 0} conversation session(s) • Stored in data/chat_history.json`;
+
+    if (turns.length === 0) {
+      historyTurnsList.innerHTML = `<div class="empty-docs">No matching Q&A records found.</div>`;
+      return;
+    }
+
+    historyTurnsList.innerHTML = "";
+    for (const t of turns) {
+      const pr = t.promptability || {};
+      const pm = t.pipeline_metrics || {};
+      const cites = t.citations || [];
+      const timeStr = (t.created_at_iso || "").slice(0, 19).replace("T", " ");
+      const citeSummary = cites
+        .map((c) => `[${c.rank}] ${c.filename} (p.${c.page_number}, score:${c.final_score})`)
+        .join("  •  ");
+
+      const card = document.createElement("div");
+      card.className = "history-turn-card";
+      card.innerHTML = `
+        <div class="history-turn-top">
+          <div class="history-turn-badges">
+            <span class="meta-pill">🕒 ${escapeHtml(timeStr)}</span>
+            <span class="meta-pill">Length: ${escapeHtml(pr.length || "balanced")}</span>
+            <span class="meta-pill">Style: ${escapeHtml(pr.style || "standard")}</span>
+            <span class="meta-pill">Top-K: ${pr.top_k ?? 6}</span>
+            <span class="meta-pill">LLM: ${escapeHtml(pm.generator || "N/A")}</span>
+            <span class="meta-pill">Embed: ${escapeHtml(pm.embedder || "N/A")}</span>
+            <span class="meta-pill">Rerank: ${escapeHtml(pm.reranker || "N/A")}</span>
+            <span class="meta-pill">⏱️ ${pm.retrieval_ms ?? 0}ms ret / ${pm.generation_ms ?? 0}ms gen</span>
+          </div>
+          <div class="msg-actions">
+            <button class="msg-action-btn open-in-chat-btn">↗ Open in Chat</button>
+            <button class="msg-action-btn delete-turn-btn">🗑️ Delete</button>
+          </div>
+        </div>
+        <div class="history-turn-q">Q: ${escapeHtml(t.question)}</div>
+        <div class="history-turn-a">${renderMarkdownWithBracketCitations(t.answer, cites)}</div>
+        <div class="history-turn-cites">📚 <strong>Citations (${cites.length}):</strong> ${escapeHtml(citeSummary || "None")}</div>
+      `;
+
+      card.querySelector(".open-in-chat-btn").addEventListener("click", async () => {
+        historyModal.classList.add("hidden");
+        await loadSavedSessionIntoChat(t.session_id);
+      });
+
+      card.querySelector(".delete-turn-btn").addEventListener("click", async () => {
+        await fetch(
+          `/api/history/${encodeURIComponent(t.session_id)}/turns/${encodeURIComponent(t.turn_id)}`,
+          { method: "DELETE" }
+        );
+        await loadAndOpenHistoryModal(historySearchInput.value.trim());
+        await refreshHistorySidebar();
+      });
+
+      historyTurnsList.appendChild(card);
+    }
+  } catch (err) {
+    console.error("Failed to load history modal:", err);
+  }
+}
+
+if (openHistoryModalBtn) {
+  openHistoryModalBtn.addEventListener("click", () => loadAndOpenHistoryModal(historySearchInput.value.trim()));
+}
+if (topbarHistoryBtn) {
+  topbarHistoryBtn.addEventListener("click", () => loadAndOpenHistoryModal(historySearchInput.value.trim()));
+}
+if (closeHistoryModalBtn) {
+  closeHistoryModalBtn.addEventListener("click", () => historyModal.classList.add("hidden"));
+}
+if (historySearchInput) {
+  historySearchInput.addEventListener("input", () => {
+    loadAndOpenHistoryModal(historySearchInput.value.trim());
+  });
+}
+if (clearAllHistoryBtn) {
+  clearAllHistoryBtn.addEventListener("click", async () => {
+    if (!confirm("Delete all saved Q&A history and metadata?")) return;
+    await fetch("/api/history", { method: "DELETE" });
+    state.currentSessionId = null;
+    await loadAndOpenHistoryModal("");
+    await refreshHistorySidebar();
+  });
+}
+
 // ==================== THEME TOGGLE ====================
 document.getElementById("themeToggleBtn").addEventListener("click", () => {
   const html = document.documentElement;
@@ -711,6 +948,7 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
 (async function initApp() {
   initSpeechRecognition();
   await refreshStatus();
+  await refreshHistorySidebar();
   try {
     const res = await fetch("/api/config");
     const cfg = await res.json();

@@ -16,6 +16,7 @@ from typing import Dict, Generator, List, Optional
 import numpy as np
 
 from purerag.config import PureRAGConfig
+from purerag.history import HistoryManager
 from purerag.rag.chunker import DocumentChunk, chunk_document
 from purerag.rag.generator import GroundedGenerator, PromptOptions
 from purerag.rag.parser import SUPPORTED_EXTENSIONS, compute_file_hash, parse_document
@@ -39,6 +40,7 @@ class PureRAGEngine:
         self.config = config
         self.config.ensure_dirs()
         self._lock = threading.RLock()
+        self.history = HistoryManager(self.config.data_dir)
 
         self.documents_meta: Dict[str, IndexedDocumentMeta] = {}
         self.chunks: List[DocumentChunk] = []
@@ -284,6 +286,8 @@ class PureRAGEngine:
         top_k: Optional[int] = None,
         filter_filenames: Optional[List[str]] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        session_id: Optional[str] = None,
+        save_to_history: bool = True,
     ) -> Dict:
         with self._lock:
             opts = PromptOptions(
@@ -314,25 +318,45 @@ class PureRAGEngine:
             generation_ms = round((time.perf_counter() - t1) * 1000.0, 1)
 
             citations = [cand.to_citation_dict(rank=i + 1) for i, cand in enumerate(candidates)]
+            promptability_meta = {
+                "length": opts.length,
+                "style": opts.style,
+                "temperature": opts.temperature,
+                "top_k": opts.top_k,
+                "custom_instruction": opts.custom_instruction,
+            }
+            pipeline_metrics = {
+                "retrieval_ms": retrieval_ms,
+                "generation_ms": generation_ms,
+                "embedder": self.embedder.active_backend,
+                "reranker": self.reranker.active_reranker,
+                "generator": model_used,
+                "chunks_searched": len(self.chunks),
+            }
+
+            recorded_session_id = session_id
+            recorded_turn_id = None
+            if save_to_history:
+                sess, turn = self.history.record_turn(
+                    question=question,
+                    answer=answer,
+                    citations=citations,
+                    promptability=promptability_meta,
+                    pipeline_metrics=pipeline_metrics,
+                    session_id=session_id,
+                    filter_filenames=filter_filenames,
+                )
+                recorded_session_id = sess.session_id
+                recorded_turn_id = turn.turn_id
 
             return {
+                "session_id": recorded_session_id,
+                "turn_id": recorded_turn_id,
                 "question": question,
                 "answer": answer,
                 "citations": citations,
-                "promptability": {
-                    "length": opts.length,
-                    "style": opts.style,
-                    "temperature": opts.temperature,
-                    "top_k": opts.top_k,
-                },
-                "pipeline_metrics": {
-                    "retrieval_ms": retrieval_ms,
-                    "generation_ms": generation_ms,
-                    "embedder": self.embedder.active_backend,
-                    "reranker": self.reranker.active_reranker,
-                    "generator": model_used,
-                    "chunks_searched": len(self.chunks),
-                },
+                "promptability": promptability_meta,
+                "pipeline_metrics": pipeline_metrics,
             }
 
     def stream_query(
@@ -345,6 +369,8 @@ class PureRAGEngine:
         top_k: Optional[int] = None,
         filter_filenames: Optional[List[str]] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        session_id: Optional[str] = None,
+        save_to_history: bool = True,
     ) -> Generator[str, None, None]:
         opts = PromptOptions(
             length=length or self.config.default_length,
@@ -365,29 +391,32 @@ class PureRAGEngine:
             )
         retrieval_ms = round((time.perf_counter() - t0) * 1000.0, 1)
         citations = [cand.to_citation_dict(rank=i + 1) for i, cand in enumerate(candidates)]
+        promptability_meta = {
+            "length": opts.length,
+            "style": opts.style,
+            "temperature": opts.temperature,
+            "top_k": opts.top_k,
+            "custom_instruction": opts.custom_instruction,
+        }
+        pipeline_metrics = {
+            "retrieval_ms": retrieval_ms,
+            "embedder": self.embedder.active_backend,
+            "reranker": self.reranker.active_reranker,
+            "chunks_searched": len(self.chunks),
+        }
 
         # 1. Emit retrieval metadata & citations immediately
         meta_event = {
             "type": "metadata",
             "citations": citations,
-            "promptability": {
-                "length": opts.length,
-                "style": opts.style,
-                "temperature": opts.temperature,
-                "top_k": opts.top_k,
-            },
-            "pipeline_metrics": {
-                "retrieval_ms": retrieval_ms,
-                "embedder": self.embedder.active_backend,
-                "reranker": self.reranker.active_reranker,
-                "chunks_searched": len(self.chunks),
-            },
+            "promptability": promptability_meta,
+            "pipeline_metrics": pipeline_metrics,
         }
         yield f"data: {json.dumps(meta_event)}\n\n"
 
         # 2. Stream tokens
         full_tokens: List[str] = []
-        used_model = "extractive_grounded_synthesizer"
+        used_model = "extractive_synthesizer"
         t1 = time.perf_counter()
         for tok_event in self.generator.stream_generate(
             query=question,
@@ -400,11 +429,33 @@ class PureRAGEngine:
             yield f"data: {json.dumps(tok_event)}\n\n"
 
         gen_ms = round((time.perf_counter() - t1) * 1000.0, 1)
+        final_answer = "".join(full_tokens)
+        pipeline_metrics["generation_ms"] = gen_ms
+        pipeline_metrics["generator"] = used_model
+
+        recorded_session_id = session_id
+        recorded_turn_id = None
+        if save_to_history:
+            sess, turn = self.history.record_turn(
+                question=question,
+                answer=final_answer,
+                citations=citations,
+                promptability=promptability_meta,
+                pipeline_metrics=pipeline_metrics,
+                session_id=session_id,
+                filter_filenames=filter_filenames,
+            )
+            recorded_session_id = sess.session_id
+            recorded_turn_id = turn.turn_id
+
         done_event = {
             "type": "done",
-            "answer": "".join(full_tokens),
+            "session_id": recorded_session_id,
+            "turn_id": recorded_turn_id,
+            "answer": final_answer,
             "generator": used_model,
             "generation_ms": gen_ms,
+            "pipeline_metrics": pipeline_metrics,
         }
         yield f"data: {json.dumps(done_event)}\n\n"
 

@@ -248,6 +248,57 @@ def cmd_query(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_history(args: argparse.Namespace) -> int:
+    from purerag.history import HistoryManager
+
+    cfg = PureRAGConfig.load()
+    hm = HistoryManager(cfg.data_dir)
+
+    if args.clear:
+        cleared = hm.clear_all()
+        console.print(f"[bold green]✓ Cleared {cleared} conversation session(s) from history.[/bold green]")
+        return 0
+
+    if args.export == "md":
+        print(hm.export_markdown())
+        return 0
+
+    turns = hm.list_all_turns(search_query=args.search)
+    sessions = hm.list_sessions(search_query=args.search)
+
+    if args.json or args.export == "json":
+        print(json.dumps({"total_sessions": len(sessions), "total_turns": len(turns), "turns": turns}, indent=2))
+        return 0
+
+    if not turns:
+        console.print("[dim]No saved Q&A history found.[/dim]")
+        return 0
+
+    table = Table(title=f"🕒 Pure RAG — Q&A History & Metadata ({len(turns)} turns across {len(sessions)} sessions)", show_header=True, header_style="bold cyan")
+    table.add_column("Time (UTC)", style="dim", width=20)
+    table.add_column("Question", style="bold")
+    table.add_column("Promptability", width=18)
+    table.add_column("Models & Timing", width=28)
+    table.add_column("Citations", width=24)
+
+    for t in turns[:30]:
+        pr = t.get("promptability") or {}
+        pm = t.get("pipeline_metrics") or {}
+        cites = t.get("citations") or []
+        cite_str = ", ".join(f"[{c.get('rank')}] {c.get('filename')}:p.{c.get('page_number')}" for c in cites[:3])
+        if len(cites) > 3:
+            cite_str += f" (+{len(cites)-3})"
+        table.add_row(
+            t.get("created_at_iso", "")[:19].replace("T", " "),
+            t.get("question", "")[:65],
+            f"{pr.get('length', 'balanced')} / {pr.get('style', 'standard')}",
+            f"{pm.get('generator', 'N/A')} ({pm.get('retrieval_ms', 0)}ms + {pm.get('generation_ms', 0)}ms)",
+            cite_str or "None",
+        )
+    console.print(table)
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     from purerag.server import create_app
@@ -335,6 +386,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_q.add_argument("--top-k", type=int, default=6, help="Number of reranked chunks to retrieve")
     p_q.add_argument("--format", default="text", choices=["text", "json"], help="Output format (text or json)")
 
+    # history
+    p_hist = sub.add_parser("history", help="Inspect, search, export, or clear saved Q&A history and metadata")
+    p_hist.add_argument("--search", "-s", default=None, help="Search across past questions, answers, or filenames")
+    p_hist.add_argument("--export", choices=["json", "md"], default=None, help="Export history as JSON or Markdown")
+    p_hist.add_argument("--clear", action="store_true", help="Clear all saved Q&A history")
+    p_hist.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
     return parser
 
 
@@ -357,6 +415,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_ingest(args)
     if args.command == "query":
         return cmd_query(args)
+    if args.command == "history":
+        return cmd_history(args)
 
     parser.print_help()
     return 0

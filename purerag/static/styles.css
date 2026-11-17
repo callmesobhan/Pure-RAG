@@ -217,11 +217,58 @@ code, pre {
 }
 
 .doc-list {
+  max-height: 185px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-list {
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.session-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.session-item.active-session {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.session-info {
+  overflow: hidden;
+  flex: 1;
+}
+
+.session-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.session-meta {
+  font-size: 0.67rem;
+  color: var(--text-muted);
 }
 
 .doc-item {
@@ -844,6 +891,107 @@ code, pre {
 
 .modal-card.modal-small {
   max-width: 500px;
+}
+
+.modal-card.modal-wide {
+  max-width: 880px;
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-search-input {
+  flex: 1;
+  min-width: 240px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+}
+
+.history-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.danger-btn:hover {
+  border-color: var(--accent-rose);
+  color: var(--accent-rose);
+}
+
+.history-stats-bar {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.history-turns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-turn-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-turn-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.history-turn-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.meta-pill {
+  font-size: 0.69rem;
+  font-family: var(--font-mono);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+
+.history-turn-q {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.history-turn-a {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  max-height: 120px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  padding: 8px 10px;
+  border-radius: 7px;
+}
+
+.history-turn-cites {
+  font-size: 0.73rem;
+  color: var(--text-muted);
 }
 
 .modal-header {
