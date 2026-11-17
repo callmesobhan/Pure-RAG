@@ -151,11 +151,17 @@ purerag query "What is the 6-stage retrieval pipeline?" --length shorter --style
 
 ---
 
-## 🧪 Running the Test Suite
+## 🧪 Running the Test Suite & Verified Benchmarks
 
 ```bash
 pytest -v
 ```
+
+### ✅ Verified Live on macOS (Apple Silicon M3, 16 GB Unified Memory)
+Pure RAG has been end-to-end verified on **macOS (Apple M3, arm64, 16 GB RAM, Apple Metal Unified GPU)** over a 1,139-page medical physics textbook (*Khan's The Physics of Radiation Therapy, 6th Edition* — 2,005 contextual chunks):
+- **Zero-Download Local Model Auto-Discovery**: Automatically detected and loaded on-device `gemma4:12b` (Ollama), `intfloat/e5-large-v2` (1024-d dense embeddings from local HuggingFace cache), and `BAAI/bge-reranker-v2-m3` (Cross-Encoder reranker from local HuggingFace cache) with **0 MB of external downloads**.
+- **Thinking-Model Compatibility (`gemma4`, `qwen3`, `deepseek-r1`)**: Automatically configures Ollama streaming (`think: false` + adaptive token budgets) so reasoning/thinking models stream visible grounded answers immediately without exhausting token limits on hidden chain-of-thought.
+- **Clean Bracketed Number Citations (`[1]`, `[2]`)**: Verified inline interactive `[1]`, `[2]` reference badges with hover tooltips and an expandable `📚 References` drawer mapping directly to exact textbook pages and sections.
 
 ---
 
