@@ -111,7 +111,10 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
     async def index_page():
         index_file = STATIC_DIR / "index.html"
         if index_file.exists():
-            return HTMLResponse(index_file.read_text(encoding="utf-8"))
+            return HTMLResponse(
+                index_file.read_text(encoding="utf-8"),
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
         return HTMLResponse("<h1>Pure RAG API Server is running.</h1>")
 
     @app.get("/api/health")
