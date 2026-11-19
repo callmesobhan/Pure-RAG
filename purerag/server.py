@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from purerag.config import PureRAGConfig
-from purerag.hardware import HARDWARE_TIERS, analyze_hardware
+from purerag.hardware import HARDWARE_TIERS, analyze_hardware, get_live_telemetry
 from purerag.rag.engine import PureRAGEngine
 from purerag.rag.parser import SUPPORTED_EXTENSIONS
 
@@ -121,6 +121,10 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
             "version": "1.0.0",
             "engine": app.state.engine.status_summary(),
         }
+
+    @app.get("/api/telemetry")
+    async def live_telemetry():
+        return get_live_telemetry()
 
     @app.get("/api/hardware")
     async def get_hardware_profile():

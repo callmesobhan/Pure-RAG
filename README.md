@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="purerag/static/icons/PureRAG_1024.png" alt="Pure RAG Logo" width="116" />
+
 **The Universal, State-of-the-Art Local RAG Pipeline & AI Chatbot**  
 *Drop your PDFs in `pdfs/` • Run one command • Chat with your documents locally via Text & Voice*
 
@@ -154,6 +156,10 @@ purerag history
 purerag history --search "pair production"
 purerag history --export md > qa_history.md
 purerag history --export json > qa_history.json
+
+# Build & install the native desktop application / launcher with the Pure RAG icon
+# (macOS: signed Pure RAG.app in /Applications & Desktop | Linux: .desktop entry | Windows: Desktop shortcut)
+purerag install-app
 ```
 
 ---

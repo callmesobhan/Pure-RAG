@@ -273,6 +273,88 @@ def _detect_gpu(sys_name: str, arch: str, cpu_brand: str, ram_total_gb: float) -
     return False, "CPU Only (No Dedicated GPU Detected)", "cpu_only", None
 
 
+def get_live_telemetry() -> Dict:
+    """
+    Returns real-time system resource utilization across macOS, Windows, and Linux:
+    - CPU utilization (%)
+    - GPU utilization (%) & GPU memory used (GB) [Apple Metal via ioreg, NVIDIA via nvidia-smi, AMD via rocm-smi]
+    - System RAM used / total (GB) & (%)
+    - Swap RAM used / total (GB) & (%)
+    """
+    # 1. CPU % (non-blocking instant sample from psutil interval state)
+    cpu_pct = round(float(psutil.cpu_percent(interval=None)), 1)
+
+    # 2. System RAM
+    vm = psutil.virtual_memory()
+    ram_total_gb = round(vm.total / (1024 ** 3), 1)
+    ram_used_gb = round((vm.total - vm.available) / (1024 ** 3), 1)
+    ram_pct = round(float(vm.percent), 1)
+
+    # 3. Swap RAM
+    sw = psutil.swap_memory()
+    swap_total_gb = round(sw.total / (1024 ** 3), 2)
+    swap_used_gb = round(sw.used / (1024 ** 3), 2)
+    swap_pct = round(float(sw.percent), 1) if sw.total > 0 else 0.0
+
+    # 4. GPU Utilization (%) & Memory
+    sys_name = platform.system()
+    gpu_pct: Optional[float] = None
+    gpu_mem_used_gb: Optional[float] = None
+    gpu_mem_total_gb: Optional[float] = None
+    gpu_label = "CPU"
+
+    if sys_name == "Darwin":
+        gpu_label = "Metal GPU"
+        out = _run_cmd(["ioreg", "-r", "-d", "1", "-c", "IOAccelerator"], timeout=1.2)
+        if not out or "PerformanceStatistics" not in out:
+            out = _run_cmd(["ioreg", "-l"], timeout=1.5)
+        if out and "PerformanceStatistics" in out:
+            m_util = re.search(r'"Device Utilization %"\s*=\s*(\d+)', out)
+            if not m_util:
+                m_util = re.search(r'"Renderer Utilization %"\s*=\s*(\d+)', out)
+            if m_util:
+                gpu_pct = float(m_util.group(1))
+            m_mem = re.search(r'"In use system memory"\s*=\s*(\d+)', out)
+            if m_mem:
+                gpu_mem_used_gb = round(int(m_mem.group(1)) / (1024 ** 3), 2)
+        if gpu_pct is None:
+            gpu_pct = 0.0
+    elif shutil.which("nvidia-smi"):
+        gpu_label = "CUDA GPU"
+        smi = _run_cmd(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            timeout=1.5,
+        )
+        if smi:
+            first = smi.splitlines()[0]
+            parts = [p.strip() for p in first.split(",")]
+            try:
+                gpu_pct = float(parts[0])
+                if len(parts) >= 3:
+                    gpu_mem_used_gb = round(float(parts[1]) / 1024.0, 2)
+                    gpu_mem_total_gb = round(float(parts[2]) / 1024.0, 2)
+            except Exception:
+                pass
+
+    return {
+        "cpu_percent": cpu_pct,
+        "gpu_percent": gpu_pct,
+        "gpu_label": gpu_label,
+        "gpu_mem_used_gb": gpu_mem_used_gb,
+        "gpu_mem_total_gb": gpu_mem_total_gb,
+        "ram_used_gb": ram_used_gb,
+        "ram_total_gb": ram_total_gb,
+        "ram_percent": ram_pct,
+        "swap_used_gb": swap_used_gb,
+        "swap_total_gb": swap_total_gb,
+        "swap_percent": swap_pct,
+    }
+
+
 def _scan_ollama_manifests_on_disk() -> List[str]:
     """
     Directly inspects `~/.ollama/models/manifests` (or `$OLLAMA_MODELS/manifests`) on disk

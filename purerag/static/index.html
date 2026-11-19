@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pure RAG</title>
+  <link rel="icon" type="image/png" href="/static/icons/PureRAG_1024.png" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
@@ -12,7 +13,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-top">
         <div class="brand-logo">
-          <div class="logo-orb"></div>
+          <img src="/static/icons/PureRAG_1024.png" alt="Pure RAG Logo" class="brand-logo-img" />
           <h1>Pure RAG</h1>
         </div>
         <button class="icon-btn" id="closeSidebarBtn" title="Close Sidebar" aria-label="Close Sidebar">
@@ -101,7 +102,7 @@
 
     <!-- Main Chat Area -->
     <main class="chat-main">
-      <!-- Minimal Top Bar -->
+      <!-- Minimal Top Bar with Live Hardware Telemetry Strip -->
       <header class="chat-topbar">
         <div class="topbar-left">
           <button class="icon-btn" id="openSidebarBtn" title="Toggle Sidebar" aria-label="Toggle Sidebar">
@@ -112,6 +113,30 @@
           </button>
           <span class="topbar-title">Pure RAG</span>
           <span id="activeFilterNotice" class="filter-pill hidden"></span>
+        </div>
+
+        <!-- Live CPU / GPU / RAM / SWAP Telemetry Monitor -->
+        <div class="telemetry-strip" id="telemetryStrip" title="Live System Resource Usage (Updates every 2s)">
+          <div class="telemetry-item">
+            <span class="tel-label">CPU</span>
+            <div class="tel-bar"><div class="tel-fill" id="telCpuBar" style="width: 0%"></div></div>
+            <span class="tel-val" id="telCpuVal">--%</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="tel-label" id="telGpuLabel">GPU</span>
+            <div class="tel-bar"><div class="tel-fill gpu" id="telGpuBar" style="width: 0%"></div></div>
+            <span class="tel-val" id="telGpuVal">--%</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="tel-label">RAM</span>
+            <div class="tel-bar"><div class="tel-fill ram" id="telRamBar" style="width: 0%"></div></div>
+            <span class="tel-val" id="telRamVal">-- / -- GB</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="tel-label">SWAP</span>
+            <div class="tel-bar"><div class="tel-fill swap" id="telSwapBar" style="width: 0%"></div></div>
+            <span class="tel-val" id="telSwapVal">-- GB</span>
+          </div>
         </div>
 
         <div class="topbar-right">

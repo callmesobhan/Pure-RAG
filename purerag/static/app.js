@@ -944,11 +944,71 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
   html.setAttribute("data-theme", next);
 });
 
+// ==================== LIVE HARDWARE TELEMETRY MONITOR ====================
+async function refreshTelemetry() {
+  try {
+    const res = await fetch("/api/telemetry");
+    if (!res.ok) return;
+    const t = await res.json();
+
+    // CPU
+    const cpuPct = Math.min(100, Math.max(0, t.cpu_percent || 0));
+    const cpuBar = document.getElementById("telCpuBar");
+    const cpuVal = document.getElementById("telCpuVal");
+    if (cpuBar) cpuBar.style.width = `${cpuPct}%`;
+    if (cpuVal) cpuVal.textContent = `${cpuPct.toFixed(0)}%`;
+
+    // GPU
+    const gpuBar = document.getElementById("telGpuBar");
+    const gpuVal = document.getElementById("telGpuVal");
+    const gpuLabel = document.getElementById("telGpuLabel");
+    if (gpuLabel && t.gpu_label) {
+      gpuLabel.textContent = t.gpu_label.includes("Metal") ? "GPU" : (t.gpu_label.includes("CUDA") ? "VRAM" : "GPU");
+    }
+    if (t.gpu_percent !== null && t.gpu_percent !== undefined) {
+      const gpuPct = Math.min(100, Math.max(0, t.gpu_percent));
+      if (gpuBar) gpuBar.style.width = `${gpuPct}%`;
+      if (gpuVal) {
+        gpuVal.textContent =
+          t.gpu_mem_used_gb !== null && t.gpu_mem_used_gb !== undefined
+            ? `${gpuPct.toFixed(0)}% (${t.gpu_mem_used_gb}G)`
+            : `${gpuPct.toFixed(0)}%`;
+      }
+    } else {
+      if (gpuBar) gpuBar.style.width = "0%";
+      if (gpuVal) gpuVal.textContent = "N/A";
+    }
+
+    // RAM
+    const ramPct = Math.min(100, Math.max(0, t.ram_percent || 0));
+    const ramBar = document.getElementById("telRamBar");
+    const ramVal = document.getElementById("telRamVal");
+    if (ramBar) ramBar.style.width = `${ramPct}%`;
+    if (ramVal) ramVal.textContent = `${t.ram_used_gb}/${t.ram_total_gb}G (${ramPct.toFixed(0)}%)`;
+
+    // SWAP
+    const swapPct = Math.min(100, Math.max(0, t.swap_percent || 0));
+    const swapBar = document.getElementById("telSwapBar");
+    const swapVal = document.getElementById("telSwapVal");
+    if (swapBar) swapBar.style.width = `${swapPct}%`;
+    if (swapVal) {
+      swapVal.textContent =
+        t.swap_total_gb > 0
+          ? `${t.swap_used_gb}/${t.swap_total_gb}G`
+          : `${t.swap_used_gb}G`;
+    }
+  } catch (e) {
+    // Silent ignore if server is restarting
+  }
+}
+
 // ==================== INITIALIZATION ====================
 (async function initApp() {
   initSpeechRecognition();
   await refreshStatus();
   await refreshHistorySidebar();
+  await refreshTelemetry();
+  setInterval(refreshTelemetry, 2000);
   try {
     const res = await fetch("/api/config");
     const cfg = await res.json();

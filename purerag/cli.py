@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -299,6 +302,186 @@ def cmd_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_app(args: argparse.Namespace) -> int:
+    """
+    Builds and installs a native application launcher with the Pure RAG icon
+    for macOS (`Pure RAG.app` in `/Applications` and `~/Desktop`),
+    Linux (`~/.local/share/applications/purerag.desktop`),
+    or Windows (`Desktop/Pure RAG.bat` launcher).
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    icons_dir = repo_root / "purerag" / "static" / "icons"
+    icns_file = icons_dir / "AppIcon.icns"
+    png_file = icons_dir / "PureRAG_1024.png"
+    sys_name = platform.system()
+
+    if sys_name == "Darwin":
+        app_dir = repo_root / "Pure RAG.app"
+        contents_dir = app_dir / "Contents"
+        macos_dir = contents_dir / "MacOS"
+        res_dir = contents_dir / "Resources"
+        macos_dir.mkdir(parents=True, exist_ok=True)
+        res_dir.mkdir(parents=True, exist_ok=True)
+
+        if icns_file.exists():
+            shutil.copy2(icns_file, res_dir / "AppIcon.icns")
+
+        (contents_dir / "PkgInfo").write_text("APPL????", encoding="utf-8")
+        info_plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Pure RAG</string>
+    <key>CFBundleExecutable</key>
+    <string>PureRAGLauncher</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.callmesobhan.purerag</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Pure RAG</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+"""
+        (contents_dir / "Info.plist").write_text(info_plist, encoding="utf-8")
+
+        launcher_sh = res_dir / "launcher.sh"
+        launcher_sh.write_text(
+            f"""#!/usr/bin/env bash
+export PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+PURERAG_DIR="{repo_root}"
+cd "$PURERAG_DIR"
+
+if lsof -iTCP:8000 -sTCP:LISTEN -t >/dev/null 2>&1; then
+  open "http://127.0.0.1:8000"
+  exit 0
+fi
+
+if [ -x "$PURERAG_DIR/.venv/bin/purerag" ]; then
+  nohup "$PURERAG_DIR/.venv/bin/purerag" serve --host 127.0.0.1 --port 8000 --yes > "$PURERAG_DIR/data/purerag_app.log" 2>&1 &
+else
+  nohup "{sys.executable}" -m purerag.cli serve --host 127.0.0.1 --port 8000 --yes > "$PURERAG_DIR/data/purerag_app.log" 2>&1 &
+fi
+exit 0
+""",
+            encoding="utf-8",
+        )
+        launcher_sh.chmod(0o755)
+
+        # Compile native Mach-O wrapper so macOS Launchpad & /Applications list recognize it
+        bin_target = macos_dir / "PureRAGLauncher"
+        if shutil.which("clang"):
+            c_src = f"""#include <unistd.h>
+#include <stdlib.h>
+int main(int argc, char *argv[]) {{
+    char *args[] = {{ "/bin/bash", "{launcher_sh}", NULL }};
+    execv("/bin/bash", args);
+    return 0;
+}}
+"""
+            c_file = repo_root / "data" / "PureRAGLauncher.c"
+            c_file.parent.mkdir(parents=True, exist_ok=True)
+            c_file.write_text(c_src, encoding="utf-8")
+            subprocess.run(["clang", "-O2", str(c_file), "-o", str(bin_target)], check=False)
+            c_file.unlink(missing_ok=True)
+        else:
+            shutil.copy2(launcher_sh, bin_target)
+        bin_target.chmod(0o755)
+
+        subprocess.run(["xattr", "-cr", str(app_dir)], check=False)
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app_dir)], check=False)
+
+        installed_paths = [str(app_dir)]
+        desktop_app = Path.home() / "Desktop" / "Pure RAG.app"
+        try:
+            if desktop_app.exists():
+                shutil.rmtree(desktop_app)
+            shutil.copytree(app_dir, desktop_app)
+            installed_paths.append(str(desktop_app))
+        except Exception:
+            pass
+
+        if not args.desktop_only and os.access("/Applications", os.W_OK):
+            sys_app = Path("/Applications/Pure RAG.app")
+            try:
+                if sys_app.exists():
+                    shutil.rmtree(sys_app)
+                shutil.copytree(app_dir, sys_app)
+                # Point /Applications binary to its own bundled launcher.sh
+                sys_launcher = sys_app / "Contents" / "Resources" / "launcher.sh"
+                if shutil.which("clang"):
+                    c_src2 = f'#include <unistd.h>\nint main(){{char *a[]={{"/bin/bash","{sys_launcher}",0}};execv("/bin/bash",a);return 0;}}\n'
+                    c_file2 = repo_root / "data" / "PureRAGLauncherApp.c"
+                    c_file2.write_text(c_src2, encoding="utf-8")
+                    subprocess.run(["clang", "-O2", str(c_file2), "-o", str(sys_app / "Contents" / "MacOS" / "PureRAGLauncher")], check=False)
+                    c_file2.unlink(missing_ok=True)
+                subprocess.run(["xattr", "-cr", str(sys_app)], check=False)
+                subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(sys_app)], check=False)
+                lsreg = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+                if Path(lsreg).exists():
+                    subprocess.run([lsreg, "-f", str(sys_app)], check=False)
+                installed_paths.append(str(sys_app))
+            except Exception:
+                pass
+
+        console.print(
+            Panel(
+                "Built & signed native macOS application bundle [bold green]Pure RAG.app[/bold green] with custom icon!\n"
+                + "\n".join(f"  • [cyan]{p}[/cyan]" for p in installed_paths),
+                title="🍎 Pure RAG Native macOS App Installed",
+                border_style="green",
+            )
+        )
+        return 0
+
+    elif sys_name == "Linux":
+        apps_dir = Path.home() / ".local" / "share" / "applications"
+        apps_dir.mkdir(parents=True, exist_ok=True)
+        desktop_entry = apps_dir / "purerag.desktop"
+        desktop_entry.write_text(
+            f"""[Desktop Entry]
+Type=Application
+Name=Pure RAG
+Comment=Local SOTA Hybrid RAG Pipeline & AI Chatbot
+Exec={repo_root / 'run.sh'}
+Icon={png_file}
+Terminal=false
+Categories=Utility;Development;Science;
+""",
+            encoding="utf-8",
+        )
+        desktop_entry.chmod(0o755)
+        console.print(f"[bold green]✓ Installed Linux desktop app entry at {desktop_entry}[/bold green]")
+        return 0
+
+    else:
+        desktop_bat = Path.home() / "Desktop" / "Pure RAG.bat"
+        desktop_bat.write_text(f'@echo off\ncd /d "{repo_root}"\ncall "{repo_root / "run.bat"}"\n', encoding="utf-8")
+        console.print(f"[bold green]✓ Installed Windows Desktop shortcut at {desktop_bat}[/bold green]")
+        return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     from purerag.server import create_app
@@ -393,6 +576,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_hist.add_argument("--clear", action="store_true", help="Clear all saved Q&A history")
     p_hist.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
+    # install-app
+    p_app = sub.add_parser("install-app", help="Build and install a native desktop app / shortcut with the Pure RAG logo (macOS, Windows, Linux)")
+    p_app.add_argument("--desktop-only", action="store_true", help="Install only to Desktop")
+
     return parser
 
 
@@ -417,6 +604,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_query(args)
     if args.command == "history":
         return cmd_history(args)
+    if args.command == "install-app":
+        return cmd_install_app(args)
 
     parser.print_help()
     return 0

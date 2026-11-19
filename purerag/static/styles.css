@@ -100,6 +100,13 @@ code, pre {
   background: linear-gradient(135deg, #6366f1 0%, #10b981 100%);
 }
 
+.brand-logo-img {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
 .brand-logo h1 {
   font-size: 1rem;
   font-weight: 700;
@@ -422,6 +429,64 @@ code, pre {
 .topbar-title {
   font-weight: 600;
   font-size: 0.9rem;
+}
+
+/* Live CPU / GPU / RAM / SWAP Telemetry Strip */
+.telemetry-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  padding: 4px 12px;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+}
+
+.telemetry-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tel-label {
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+}
+
+.tel-bar {
+  width: 36px;
+  height: 5px;
+  background: var(--bg-tertiary);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.tel-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 99px;
+  transition: width 0.35s ease;
+}
+
+.tel-fill.gpu {
+  background: var(--accent-emerald);
+}
+
+.tel-fill.ram {
+  background: #06b6d4;
+}
+
+.tel-fill.swap {
+  background: #f59e0b;
+}
+
+.tel-val {
+  color: var(--text-primary);
+  font-weight: 600;
+  min-width: 34px;
 }
 
 .filter-pill {
@@ -1261,5 +1326,8 @@ code, pre {
 @media (max-width: 768px) {
   .starter-grid, .hw-specs-grid, .tiers-grid {
     grid-template-columns: 1fr;
+  }
+  .telemetry-strip {
+    display: none;
   }
 }

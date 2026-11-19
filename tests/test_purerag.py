@@ -148,10 +148,17 @@ def test_fastapi_endpoints_and_sse_streaming(tmp_path: Path):
     app = create_app(cfg)
     client = TestClient(app)
 
-    # 1. Health check
+    # 1. Health check & Live Hardware Telemetry check
     r_health = client.get("/api/health")
     assert r_health.status_code == 200
     assert r_health.json()["engine"]["total_documents"] == 1
+
+    r_tel = client.get("/api/telemetry")
+    assert r_tel.status_code == 200
+    tel_data = r_tel.json()
+    assert "cpu_percent" in tel_data
+    assert "ram_used_gb" in tel_data
+    assert "swap_used_gb" in tel_data
 
     # 2. Hardware check
     r_hw = client.get("/api/hardware")
