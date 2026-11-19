@@ -522,6 +522,12 @@ code, pre {
   background: var(--bg-tertiary);
 }
 
+.quit-server-btn:hover {
+  color: var(--accent-rose);
+  border-color: var(--accent-rose);
+  background: rgba(244, 63, 94, 0.12);
+}
+
 /* ==================== MESSAGES STREAM ==================== */
 .messages-container {
   flex: 1;

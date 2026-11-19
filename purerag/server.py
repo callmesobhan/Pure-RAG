@@ -9,8 +9,12 @@ Provides REST & Server-Sent Events (SSE) endpoints for:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import shutil
+import signal
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -81,6 +85,11 @@ class OllamaPullRequest(BaseModel):
     model: str
 
 
+class ClientLifecycleRequest(BaseModel):
+    client_id: str = Field(default="default")
+    immediate: bool = Field(default=False)
+
+
 def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
     cfg = config or PureRAGConfig.load()
     engine = PureRAGEngine(cfg)
@@ -103,6 +112,43 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
 
     app.state.config = cfg
     app.state.engine = engine
+    app.state.active_clients: Dict[str, float] = {}
+    app.state.shutdown_scheduled: bool = False
+
+    def _trigger_process_exit(delay_sec: float = 0.4) -> None:
+        async def _exit_coro():
+            await asyncio.sleep(delay_sec)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_exit_coro())
+        except RuntimeError:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    def _schedule_tab_close_grace_check(grace_sec: float = 5.0) -> None:
+        async def _grace_coro():
+            await asyncio.sleep(grace_sec)
+            now = time.time()
+            # Prune clients older than 6 seconds
+            alive = {
+                cid: ts
+                for cid, ts in list(app.state.active_clients.items())
+                if (now - ts) < 6.0
+            }
+            app.state.active_clients = alive
+            if not alive:
+                os.kill(os.getpid(), signal.SIGTERM)
+            else:
+                app.state.shutdown_scheduled = False
+
+        if not app.state.shutdown_scheduled:
+            app.state.shutdown_scheduled = True
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_grace_coro())
+            except RuntimeError:
+                pass
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -126,8 +172,37 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
         }
 
     @app.get("/api/telemetry")
-    async def live_telemetry():
-        return get_live_telemetry()
+    async def live_telemetry(client_id: Optional[str] = None):
+        now = time.time()
+        if client_id:
+            app.state.active_clients[client_id] = now
+            app.state.shutdown_scheduled = False
+        # Prune stale tab IDs (>15s without heartbeat)
+        app.state.active_clients = {
+            cid: ts for cid, ts in app.state.active_clients.items() if (now - ts) < 15.0
+        }
+        data = get_live_telemetry()
+        data["active_tabs"] = len(app.state.active_clients)
+        return data
+
+    @app.post("/api/client/closed")
+    async def client_tab_closed(req: Optional[ClientLifecycleRequest] = None):
+        """
+        Called via navigator.sendBeacon when a browser tab closes or reloads.
+        Removes the tab ID and waits a 5-second grace period (so Cmd+R reloads reconnect
+        seamlessly). If 0 tabs are open after 5 seconds, shuts down the background server.
+        """
+        cid = req.client_id if req else "default"
+        app.state.active_clients.pop(cid, None)
+        if not app.state.active_clients:
+            _schedule_tab_close_grace_check(grace_sec=5.0)
+        return {"status": "grace_period_started", "remaining_tabs": len(app.state.active_clients)}
+
+    @app.post("/api/shutdown")
+    async def manual_shutdown():
+        """Immediately terminates the background Pure RAG server process."""
+        _trigger_process_exit(delay_sec=0.35)
+        return {"status": "shutting_down", "message": "Pure RAG background server has stopped."}
 
     @app.get("/api/hardware")
     async def get_hardware_profile():

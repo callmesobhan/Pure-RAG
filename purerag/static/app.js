@@ -9,6 +9,8 @@
  */
 
 const state = {
+  clientId: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  serverStopped: false,
   currentSessionId: null,
   chatHistory: [],
   selectedLength: "balanced",
@@ -944,10 +946,11 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
   html.setAttribute("data-theme", next);
 });
 
-// ==================== LIVE HARDWARE TELEMETRY MONITOR ====================
+// ==================== LIVE HARDWARE TELEMETRY MONITOR & LIFECYCLE ====================
 async function refreshTelemetry() {
+  if (state.serverStopped) return;
   try {
-    const res = await fetch("/api/telemetry");
+    const res = await fetch(`/api/telemetry?client_id=${encodeURIComponent(state.clientId)}`);
     if (!res.ok) return;
     const t = await res.json();
 
@@ -1000,6 +1003,47 @@ async function refreshTelemetry() {
   } catch (e) {
     // Silent ignore if server is restarting
   }
+}
+
+// Notify server when browser tab is closed so it auto-shuts down after 5s grace period
+window.addEventListener("pagehide", () => {
+  if (state.serverStopped) return;
+  const payload = JSON.stringify({ client_id: state.clientId });
+  const blob = new Blob([payload], { type: "application/json" });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon("/api/client/closed", blob);
+  } else {
+    fetch("/api/client/closed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true,
+    });
+  }
+});
+
+const quitServerBtn = document.getElementById("quitServerBtn");
+if (quitServerBtn) {
+  quitServerBtn.addEventListener("click", async () => {
+    state.serverStopped = true;
+    try {
+      await fetch("/api/shutdown", { method: "POST" });
+    } catch (e) {
+      // Server exits immediately
+    }
+    document.body.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0d1117;color:#f0f6fc;font-family:-apple-system,BlinkMacSystemFont,sans-serif;text-align:center;gap:12px;padding:24px;">
+        <div style="font-size:2.4rem;">⏻</div>
+        <h2 style="font-size:1.4rem;font-weight:700;">Pure RAG Server Stopped</h2>
+        <p style="color:#8b949e;max-width:440px;line-height:1.5;">
+          The background server has shut down and freed all memory. You can safely close this browser tab, or launch <strong>Pure RAG.app</strong> anytime to start again.
+        </p>
+      </div>
+    `;
+    try {
+      window.close();
+    } catch (e) {}
+  });
 }
 
 // ==================== INITIALIZATION ====================
