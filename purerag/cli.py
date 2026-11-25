@@ -231,6 +231,7 @@ def cmd_query(args: argparse.Namespace) -> int:
         length=args.length,
         style=args.style,
         top_k=args.top_k,
+        check_counter_evidence=args.counter_evidence,
     )
     if args.format == "json":
         print(json.dumps(result, indent=2))
@@ -248,6 +249,31 @@ def cmd_query(args: argparse.Namespace) -> int:
                 console.print(
                     f"  [{c['rank']}] [bold]{c['filename']}[/bold] (p. {c['page_number']} | {c['section_path']}) — score: {c['final_score']}"
                 )
+        counter_items = result.get("counter_evidence") or []
+        if counter_items:
+            console.print("\n[bold yellow]⚠️  Adversarial Counter-Evidence / Caveats Found:[/bold yellow]")
+            for ce in counter_items:
+                console.print(
+                    f"  [{ce['rank']}] [bold]{ce['filename']}[/bold] (p. {ce['page_number']} | {ce['kind']}): {ce['reason']}\n"
+                    f"      [dim]{ce['snippet'][:220]}[/dim]"
+                )
+    return 0
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    from purerag.rag.audit import generate_blind_spot_certificate
+
+    cfg = PureRAGConfig.load()
+    pdfs_dir = Path(args.pdfs_dir).resolve() if args.pdfs_dir else Path(cfg.pdfs_dir).resolve()
+    cert = generate_blind_spot_certificate(pdfs_dir)
+    output_text = json.dumps(cert.to_dict(), indent=2) if args.json else cert.to_markdown()
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(output_text, encoding="utf-8")
+        console.print(f"[bold green]✓ Wrote Corpus Blind-Spot Certificate to {out_path}[/bold green]")
+    else:
+        print(output_text)
     return 0
 
 
@@ -568,6 +594,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_q.add_argument("--top-k", type=int, default=6, help="Number of reranked chunks to retrieve")
     p_q.add_argument("--format", default="text", choices=["text", "json"], help="Output format (text or json)")
+    p_q.add_argument(
+        "--counter-evidence",
+        action="store_true",
+        help="Run adversarial second-pass retrieval to surface caveats, exceptions, contraindications, and numeric discrepancies",
+    )
+
+    # audit
+    p_aud = sub.add_parser("audit", help="Generate a deterministic Corpus Ingestion Blind-Spot Certificate for pdfs/")
+    p_aud.add_argument("--pdfs-dir", default=None, help="Directory of documents to audit (default: configured pdfs/)")
+    p_aud.add_argument("--json", action="store_true", help="Output machine-readable JSON certificate")
+    p_aud.add_argument("--out", default=None, help="Optional file path to save the certificate")
 
     # history
     p_hist = sub.add_parser("history", help="Inspect, search, export, or clear saved Q&A history and metadata")
@@ -602,6 +639,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_ingest(args)
     if args.command == "query":
         return cmd_query(args)
+    if args.command == "audit":
+        return cmd_audit(args)
     if args.command == "history":
         return cmd_history(args)
     if args.command == "install-app":

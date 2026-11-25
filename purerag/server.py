@@ -48,6 +48,10 @@ class ChatRequest(BaseModel):
     top_k: Optional[int] = Field(default=None, ge=1, le=20)
     filter_filenames: Optional[List[str]] = Field(default=None)
     chat_history: Optional[List[Dict[str, str]]] = Field(default=None)
+    counter_evidence: bool = Field(
+        default=False,
+        description="Run adversarial second-pass counter-evidence retrieval for caveats/contradictions",
+    )
 
 
 class RenameSessionRequest(BaseModel):
@@ -361,6 +365,11 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="File not found")
         return FileResponse(str(target), filename=safe_name)
 
+    @app.get("/api/audit/blindspots")
+    async def audit_blindspots():
+        """Return deterministic Corpus Ingestion Blind-Spot Certificate for `pdfs/`."""
+        return app.state.engine.blind_spot_certificate().to_dict()
+
     @app.post("/api/chat")
     async def chat_endpoint(req: ChatRequest):
         result = app.state.engine.query(
@@ -373,6 +382,7 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
             filter_filenames=req.filter_filenames,
             chat_history=req.chat_history,
             session_id=req.session_id,
+            check_counter_evidence=req.counter_evidence,
         )
         return result
 
@@ -388,6 +398,7 @@ def create_app(config: Optional[PureRAGConfig] = None) -> FastAPI:
             filter_filenames=req.filter_filenames,
             chat_history=req.chat_history,
             session_id=req.session_id,
+            check_counter_evidence=req.counter_evidence,
         )
         return StreamingResponse(generator, media_type="text/event-stream")
 

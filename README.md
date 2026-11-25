@@ -148,8 +148,12 @@ purerag doctor
 # Scan ./pdfs/ folder and incrementally index new/modified files
 purerag ingest
 
-# Query your documents directly from the terminal
-purerag query "What is the 6-stage retrieval pipeline?" --length shorter --style bulleted
+# Query your documents directly from the terminal (add --counter-evidence to hunt for caveats & contradictions)
+purerag query "What is the 6-stage retrieval pipeline?" --length shorter --style bulleted --counter-evidence
+
+# Generate a deterministic Corpus Ingestion Blind-Spot Certificate (detects scanned/blank pages, garbled CID fonts, and ignored files)
+purerag audit
+purerag audit --json --out blindspot_certificate.json
 
 # Browse, search, or export all saved Q&A turns and their full metadata
 purerag history

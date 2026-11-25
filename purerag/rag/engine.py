@@ -17,6 +17,11 @@ import numpy as np
 
 from purerag.config import PureRAGConfig
 from purerag.history import HistoryManager
+from purerag.rag.audit import (
+    CorpusBlindSpotCertificate,
+    find_counter_evidence,
+    generate_blind_spot_certificate,
+)
 from purerag.rag.chunker import DocumentChunk, chunk_document
 from purerag.rag.generator import GroundedGenerator, PromptOptions
 from purerag.rag.parser import SUPPORTED_EXTENSIONS, compute_file_hash, parse_document
@@ -276,6 +281,10 @@ class PureRAGEngine:
                 "active_reranker": self.reranker.active_reranker,
             }
 
+    def blind_spot_certificate(self) -> CorpusBlindSpotCertificate:
+        """Deterministically audit every file in `pdfs_dir` for silent ingestion blind spots."""
+        return generate_blind_spot_certificate(self.config.pdfs_dir)
+
     def query(
         self,
         question: str,
@@ -288,6 +297,7 @@ class PureRAGEngine:
         chat_history: Optional[List[Dict[str, str]]] = None,
         session_id: Optional[str] = None,
         save_to_history: bool = True,
+        check_counter_evidence: bool = False,
     ) -> Dict:
         with self._lock:
             opts = PromptOptions(
@@ -318,6 +328,19 @@ class PureRAGEngine:
             generation_ms = round((time.perf_counter() - t1) * 1000.0, 1)
 
             citations = [cand.to_citation_dict(rank=i + 1) for i, cand in enumerate(candidates)]
+            counter_items = (
+                [
+                    item.to_dict()
+                    for item in find_counter_evidence(
+                        self,
+                        question=question,
+                        primary_candidates=candidates,
+                        filter_filenames=filter_filenames,
+                    )
+                ]
+                if check_counter_evidence
+                else []
+            )
             promptability_meta = {
                 "length": opts.length,
                 "style": opts.style,
@@ -349,7 +372,7 @@ class PureRAGEngine:
                 recorded_session_id = sess.session_id
                 recorded_turn_id = turn.turn_id
 
-            return {
+            result_payload = {
                 "session_id": recorded_session_id,
                 "turn_id": recorded_turn_id,
                 "question": question,
@@ -358,6 +381,9 @@ class PureRAGEngine:
                 "promptability": promptability_meta,
                 "pipeline_metrics": pipeline_metrics,
             }
+            if check_counter_evidence:
+                result_payload["counter_evidence"] = counter_items
+            return result_payload
 
     def stream_query(
         self,
@@ -371,6 +397,7 @@ class PureRAGEngine:
         chat_history: Optional[List[Dict[str, str]]] = None,
         session_id: Optional[str] = None,
         save_to_history: bool = True,
+        check_counter_evidence: bool = False,
     ) -> Generator[str, None, None]:
         opts = PromptOptions(
             length=length or self.config.default_length,
@@ -412,6 +439,17 @@ class PureRAGEngine:
             "promptability": promptability_meta,
             "pipeline_metrics": pipeline_metrics,
         }
+        if check_counter_evidence:
+            with self._lock:
+                meta_event["counter_evidence"] = [
+                    item.to_dict()
+                    for item in find_counter_evidence(
+                        self,
+                        question=question,
+                        primary_candidates=candidates,
+                        filter_filenames=filter_filenames,
+                    )
+                ]
         yield f"data: {json.dumps(meta_event)}\n\n"
 
         # 2. Stream tokens
