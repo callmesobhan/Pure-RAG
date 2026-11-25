@@ -424,12 +424,14 @@ async function sendMessage() {
       <div class="msg-footer-bar">
         <div class="msg-actions">
           <button class="msg-action-btn toggle-refs-btn">📚 References (0)</button>
+          <button class="msg-action-btn toggle-counter-btn hidden">⚖️ Counter-Evidence (0)</button>
           <button class="msg-action-btn speak-btn" title="Read response aloud">🔊 Speak</button>
           <button class="msg-action-btn copy-btn" title="Copy answer">📋 Copy</button>
         </div>
         <span class="msg-meta-info"></span>
       </div>
       <div class="references-box hidden"></div>
+      <div class="counter-evidence-box hidden"></div>
     </div>
   `;
   messagesList.appendChild(assistantRow);
@@ -438,15 +440,21 @@ async function sendMessage() {
   const contentEl = assistantRow.querySelector(".msg-content");
   const metaInfoEl = assistantRow.querySelector(".msg-meta-info");
   const toggleRefsBtn = assistantRow.querySelector(".toggle-refs-btn");
+  const toggleCounterBtn = assistantRow.querySelector(".toggle-counter-btn");
   const referencesBoxEl = assistantRow.querySelector(".references-box");
+  const counterBoxEl = assistantRow.querySelector(".counter-evidence-box");
   const speakBtn = assistantRow.querySelector(".speak-btn");
   const copyBtn = assistantRow.querySelector(".copy-btn");
 
   let accumulatedAnswer = "";
   let citations = [];
+  let counterEvidence = [];
 
   toggleRefsBtn.addEventListener("click", () => {
     referencesBoxEl.classList.toggle("hidden");
+  });
+  toggleCounterBtn.addEventListener("click", () => {
+    counterBoxEl.classList.toggle("hidden");
   });
 
   // Clicking any inline `[1]` badge opens the references list and highlights that reference
@@ -461,6 +469,7 @@ async function sendMessage() {
   });
 
   try {
+    const counterToggleEl = document.getElementById("counterEvidenceToggle");
     const payload = {
       question,
       session_id: state.currentSessionId,
@@ -470,6 +479,7 @@ async function sendMessage() {
       custom_instruction: state.customInstruction || null,
       filter_filenames: state.selectedFilenames.size > 0 ? Array.from(state.selectedFilenames) : null,
       chat_history: state.chatHistory.slice(-6),
+      counter_evidence: counterToggleEl ? counterToggleEl.checked : false,
     };
 
     const response = await fetch("/api/chat/stream", {
@@ -499,8 +509,14 @@ async function sendMessage() {
         const evt = JSON.parse(jsonStr);
         if (evt.type === "metadata") {
           citations = evt.citations || [];
+          counterEvidence = evt.counter_evidence || [];
           toggleRefsBtn.textContent = `📚 References (${citations.length})`;
           renderNumberedReferences(referencesBoxEl, citations);
+          if (counterEvidence.length > 0) {
+            toggleCounterBtn.classList.remove("hidden");
+            toggleCounterBtn.textContent = `⚖️ Counter-Evidence (${counterEvidence.length})`;
+            renderCounterEvidence(counterBoxEl, counterEvidence);
+          }
         } else if (evt.type === "token") {
           accumulatedAnswer += evt.content || "";
           contentEl.innerHTML = renderMarkdownWithBracketCitations(accumulatedAnswer, citations);
@@ -562,6 +578,92 @@ function renderNumberedReferences(container, citations) {
     .join("");
 
   container.innerHTML = `<div class="references-list">${itemsHtml}</div>`;
+}
+
+function renderCounterEvidence(container, items) {
+  if (!items || items.length === 0) {
+    container.innerHTML = "";
+    return;
+  }
+  const rows = items
+    .map(
+      (ce) => `
+      <div class="ref-item">
+        <span class="counter-tag">⚖️ ${escapeHtml(ce.signal_type || "caveat")}</span>
+        <div class="ref-body">
+          <span class="ref-title">${escapeHtml(ce.filename)} (Page ${ce.page_number} • ${escapeHtml(ce.section_path)})</span>
+          <span class="ref-meta">${escapeHtml(ce.reason || "")} (cues: ${escapeHtml((ce.matched_cues || []).join(", "))})</span>
+          <span class="ref-snippet">${escapeHtml(ce.snippet)}</span>
+        </div>
+      </div>
+    `
+    )
+    .join("");
+  container.innerHTML = `<div class="references-list">${rows}</div>`;
+}
+
+// ==================== CORPUS BLIND-SPOT CERTIFICATE MODAL ====================
+const auditModal = document.getElementById("auditModal");
+const openAuditModalBtn = document.getElementById("openAuditModalBtn");
+const closeAuditModalBtn = document.getElementById("closeAuditModalBtn");
+const auditModalBody = document.getElementById("auditModalBody");
+
+if (openAuditModalBtn) {
+  openAuditModalBtn.addEventListener("click", async () => {
+    auditModal.classList.remove("hidden");
+    auditModalBody.innerHTML = `<p style="color:var(--text-secondary);">Running deterministic page-by-page ingestion audit on <code>pdfs/</code>...</p>`;
+    try {
+      const res = await fetch("/api/audit/blindspots");
+      const cert = await res.json();
+      const docsHtml = (cert.documents || [])
+        .map((d) => {
+          const issuesHtml = (d.issues || [])
+            .slice(0, 15)
+            .map(
+              (iss) =>
+                `<li><strong>Page ${iss.page_number}</strong> [<code>${escapeHtml(iss.issue)}</code>]: ${escapeHtml(iss.detail)}</li>`
+            )
+            .join("");
+          return `
+            <div class="history-turn-card">
+              <div class="history-turn-top">
+                <strong>📄 ${escapeHtml(d.filename)}</strong>
+                <span class="meta-pill">Coverage: ${d.healthy_pages}/${d.total_pages} pages (${d.coverage_pct}%) • Parser: ${escapeHtml(d.parser_used)}</span>
+              </div>
+              ${
+                issuesHtml
+                  ? `<ul style="margin-left:18px;font-size:0.78rem;color:var(--text-secondary);">${issuesHtml}</ul>`
+                  : `<div style="font-size:0.78rem;color:var(--accent-emerald);">✓ All ${d.total_pages} pages passed extraction &amp; encoding audit with zero blind spots.</div>`
+              }
+            </div>
+          `;
+        })
+        .join("");
+
+      const recsHtml = (cert.recommendations || [])
+        .map((r) => `<li>${escapeHtml(r)}</li>`)
+        .join("");
+
+      auditModalBody.innerHTML = `
+        <div class="recommendation-banner">
+          <div class="rec-header">
+            <span class="rec-badge">Coverage: ${cert.overall_coverage_pct}%</span>
+            <strong>${cert.healthy_pages} / ${cert.total_pages} Healthy Pages across ${cert.supported_files} Document(s)</strong>
+          </div>
+          <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:4px;">
+            Corpus SHA-256: <code>${escapeHtml((cert.corpus_sha256 || "").slice(0, 24))}...</code> • Blind-spot pages detected: <strong>${cert.blind_spot_pages}</strong>
+          </p>
+        </div>
+        <div class="history-turns-list">${docsHtml}</div>
+        ${recsHtml ? `<div class="permission-box" style="font-size:0.78rem;"><strong>Recommendations:</strong><ul style="margin-left:18px;margin-top:4px;">${recsHtml}</ul></div>` : ""}
+      `;
+    } catch (e) {
+      auditModalBody.innerHTML = `<p style="color:var(--accent-rose);">Audit failed: ${escapeHtml(e.message)}</p>`;
+    }
+  });
+}
+if (closeAuditModalBtn) {
+  closeAuditModalBtn.addEventListener("click", () => auditModal.classList.add("hidden"));
 }
 
 // ==================== HARDWARE & LOCAL MODELS MODAL ====================

@@ -785,6 +785,34 @@ code, pre {
   margin-top: 2px;
 }
 
+.counter-toggle {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 0.74rem;
+}
+
+.counter-evidence-box {
+  margin-top: 8px;
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.8rem;
+}
+
+.counter-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.16);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 /* ==================== UNCLUTTERED COMPOSER ==================== */
 .composer-area {
   padding: 10px 20px 18px;

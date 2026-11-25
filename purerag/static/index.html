@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pure RAG</title>
   <link rel="icon" type="image/png" href="/static/icons/PureRAG_1024.png" />
-  <link rel="stylesheet" href="/static/styles.css?v=20261119b" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261125" />
 </head>
 <body>
   <div class="app-shell">
@@ -61,9 +61,14 @@
           <span>Documents</span>
           <span class="badge-pill" id="docCountBadge">0</span>
         </div>
-        <button class="sync-btn" id="syncDocsBtn" title="Scan pdfs/ folder for new files">
-          Sync
-        </button>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <button class="sync-btn" id="openAuditModalBtn" title="Run Deterministic Corpus Ingestion Blind-Spot Certificate">
+            🛡️ Audit
+          </button>
+          <button class="sync-btn" id="syncDocsBtn" title="Scan pdfs/ folder for new files">
+            Sync
+          </button>
+        </div>
       </div>
 
       <!-- Document List -->
@@ -234,6 +239,12 @@
                   <option value="6" selected>6 Sources</option>
                   <option value="8">8 Sources</option>
                 </select>
+
+                <!-- Adversarial Counter-Evidence Toggle -->
+                <label class="voice-auto-toggle counter-toggle" title="Run adversarial second-pass retrieval to surface caveats, exceptions, contraindications, and numeric discrepancies">
+                  <input type="checkbox" id="counterEvidenceToggle" checked />
+                  <span>⚖️ Counter-Evidence</span>
+                </label>
               </div>
 
               <div class="prompt-actions">
@@ -431,6 +442,22 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20261119b"></script>
+  <!-- Modal 4: Corpus Ingestion Blind-Spot Certificate -->
+  <div class="modal-backdrop hidden" id="auditModal">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">DETERMINISTIC INGESTION VERIFICATION</span>
+          <h3>Corpus Blind-Spot Certificate</h3>
+        </div>
+        <button class="icon-btn" id="closeAuditModalBtn" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="auditModalBody">
+        <p style="color:var(--text-secondary);">Auditing documents in <code>pdfs/</code>...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20261125"></script>
 </body>
 </html>
