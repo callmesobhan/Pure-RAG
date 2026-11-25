@@ -7,7 +7,7 @@ name = "pure-rag"
 version = "1.0.0"
 description = "Pure RAG: State-of-the-Art Local RAG Pipeline & AI Chatbot with Hybrid Search, Cross-Encoder Reranking, Voice, and Hardware-Aware Setup"
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 requires-python = ">=3.9"
 authors = [
     { name = "Sobhan", email = "callmesobhan@users.noreply.github.com" }
@@ -18,7 +18,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
